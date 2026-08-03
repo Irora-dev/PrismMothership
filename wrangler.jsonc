@@ -1,0 +1,17 @@
+// Cloudflare Workers deploy config (used only if you deploy to Cloudflare —
+// see docs/HOSTING.md). Rename "name" to whatever you want your worker called.
+{
+  "name": "prism-mothership",
+  "main": ".open-next/worker.js",
+  "build": { "command": "npx opennextjs-cloudflare build" },
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Workers kills post-response work, so the Netlify trick (a timed-out scan
+  // finishes in the background and warms the cache) never happens here — give
+  // the cold chain scan room to complete inside the request instead.
+  "vars": { "FEED_EVENTS_BUDGET_MS": "25000", "FEED_STATS_BUDGET_MS": "25000" },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}

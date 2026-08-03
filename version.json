@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.12",
+  "note": "HOSTING.md documents the fully headless Cloudflare path: one 'Edit Cloudflare Workers' API token drives deploy, secrets, and the custom-domain attach \u2014 no browser at any step. The path AI agents should default to.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
