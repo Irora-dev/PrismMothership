@@ -1,0 +1,778 @@
+@import "tailwindcss";
+
+/* ============================================================
+   PRISM PULSE — design system
+   Ported from the Spectrum site so this reads as a sibling.
+   Dark, glassy, rainbow-accented. Scoped under .spectrum-root.
+   ============================================================ */
+
+:root {
+  --bg-deep: #000000;
+  --bg-panel: #0f1015;
+  --text-heading: #f8fafc;
+  --text-primary: #e8edf4;
+  --text-secondary: #a8b8cc;
+  --text-muted: #8494a7;
+  --accent: #a855f7;
+  --accent-dim: #7c3aed;
+
+  /* event palette */
+  --burn: #f97316;       /* buy & burn — ember/orange */
+  --burn-2: #ef4444;
+  --fee: #22d3ee;        /* LP fees to holders — cyan */
+  --swap: #38bdf8;       /* pool swap */
+  --launch: #a855f7;     /* new index launch — violet */
+  --harvest: #22c55e;    /* dstable yield harvest — green */
+  --retire: #eab308;     /* NFT retired — gold */
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  background-color: #000000;
+  color: var(--text-primary);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+}
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.35);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.55);
+}
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Root + typography ── */
+.spectrum-root {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  color: #f8fafc;
+}
+.spectrum-root .txt-white {
+  color: #ffffff;
+}
+.spectrum-root .logo-font {
+  font-family: "Playfair Display", serif;
+}
+.spectrum-root .font-mono {
+  font-family: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ── Rainbow text / dividers / badges ── */
+.spectrum-root .spectrum-text-gradient {
+  background: linear-gradient(90deg, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* one-shot rainbow shimmer that sweeps across the hero subtitle after it loads.
+   Base text is slate; a rainbow band rides across the line once, then settles. */
+@keyframes rainbow-text-sweep {
+  0% { background-position: 165% 0; }
+  100% { background-position: -65% 0; }
+}
+/* the /claim supply bar's whole-PRISM segment — a slow full-spectrum drift */
+@keyframes prism-bar-pan {
+  0% { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+/* the mobile nav dropdown settling in under the bar */
+@keyframes nav-menu-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* /robinhood: hide height-hungry tiles on short (landscape-phone) viewports */
+@media (max-height: 560px) {
+  .rh-tall-only { display: none !important; }
+}
+/* the /robinhood bento kit sheen (from the reference asset: 115deg gloss, 10s) */
+.rh-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.09) 50%, transparent 62%);
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  animation: rh-sheen 10s linear infinite;
+}
+@keyframes rh-sheen { 0% { background-position: 150% 0; } 100% { background-position: -150% 0; } }
+/* the /robinhood footer ticker (two copies → seamless 50% loop) */
+@keyframes rh-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+/* the /claim post-claim celebration */
+@keyframes prism-confetti {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.4); opacity: 0; }
+}
+@keyframes prism-celebrate-pop {
+  0% { transform: scale(0.86); opacity: 0; }
+  10% { transform: scale(1.03); opacity: 1; }
+  16% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { transform: scale(0.98); opacity: 0; }
+}
+@keyframes prism-celebrate-fade {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.spectrum-root .rainbow-sweep {
+  background: linear-gradient(
+    100deg,
+    #cbd5e1 0%, #cbd5e1 36%,
+    #ff5a5a 42%, #ff9f45 45.5%, #ffe14d 49%, #5cff8f 52.5%, #3bd9ff 56%, #7c8bff 59.5%, #c06aff 63%,
+    #cbd5e1 69%, #cbd5e1 100%
+  );
+  background-size: 250% 100%;
+  background-position: 165% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: rainbow-text-sweep 2.1s cubic-bezier(0.4, 0, 0.2, 1) 1s 1 both;
+}
+.spectrum-root .spectrum-text-glow {
+  filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.45)) drop-shadow(0 0 34px rgba(59, 130, 246, 0.28));
+}
+.spectrum-root .spectrum-divider {
+  height: 4px;
+  background: linear-gradient(90deg, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7);
+  border-radius: 2px;
+}
+.spectrum-root .spectrum-title {
+  animation: spectrum-title-glow 4.5s ease-in-out infinite;
+}
+@keyframes spectrum-title-glow {
+  0%, 100% {
+    text-shadow: 0 0 16px rgba(255, 255, 255, 0.4), 0 0 42px rgba(168, 85, 247, 0.4),
+      0 0 85px rgba(59, 130, 246, 0.25);
+  }
+  50% {
+    text-shadow: 0 0 26px rgba(255, 255, 255, 0.6), 0 0 60px rgba(168, 85, 247, 0.6),
+      0 0 110px rgba(59, 130, 246, 0.38);
+  }
+}
+.spectrum-root .spectrum-badge {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  transition: all 0.3s ease;
+}
+.spectrum-root .spectrum-badge:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.spectrum-root .spectrum-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+}
+
+/* ── Glass cards / buttons ── */
+.glass-card {
+  /* No backdrop-filter: blurring a backdrop that sits over the animated WebGL
+     canvas forces a full GPU readback + blur every frame (the canvas repaints
+     continuously), which tanks the framerate even though the shader is cheap.
+     A more opaque solid fill gives the same separation for ~free. */
+  background: rgba(20, 20, 26, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  overflow: hidden;
+}
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.btn-gradient {
+  background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+  border: none;
+  color: white;
+  padding: 13px 28px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 4px 20px rgba(147, 51, 234, 0.3);
+}
+.btn-gradient:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(147, 51, 234, 0.5);
+  background: linear-gradient(135deg, #4338ca 0%, #7e22ce 100%);
+}
+.btn-glass {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 13px 28px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-glass:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* ── Scroll reveal ── */
+@keyframes spectrum-reveal {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: none; }
+}
+.spectrum-root .reveal { opacity: 0; }
+.spectrum-root .reveal.is-visible {
+  animation: spectrum-reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Page-load fades ── */
+@keyframes spectrum-load-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+.spectrum-root .spectrum-load {
+  opacity: 0;
+  animation: spectrum-load-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes spectrum-letter-in {
+  from { opacity: 0; transform: translateY(0.4em); filter: blur(8px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.spectrum-root .spectrum-letter {
+  display: inline-block;
+  opacity: 0;
+  animation: spectrum-letter-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* pixel-field canvas lives on <body> (outside .spectrum-root) — global keyframe */
+@keyframes bg-load {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ============================================================
+   PULSE — live activity specific
+   ============================================================ */
+
+/* live status dot */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+.pulse-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: #4ade80;
+  box-shadow: 0 0 10px #4ade80, 0 0 4px #4ade80;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+.pulse-live-dot.demo {
+  background: #fbbf24;
+  box-shadow: 0 0 10px #fbbf24, 0 0 4px #fbbf24;
+}
+
+/* feed item entrance — new events POP in at the top with a little overshoot */
+@keyframes feed-pop {
+  0% { opacity: 0; transform: translateY(-12px) scale(0.9); }
+  55% { opacity: 1; transform: translateY(0) scale(1.025); }
+  100% { transform: translateY(0) scale(1); }
+}
+.feed-item-enter {
+  animation: feed-pop 0.5s cubic-bezier(0.2, 0.7, 0.3, 1.4) both;
+}
+/* one-shot inset color flash when a new card lands (clip-safe, lives inside the card) */
+@keyframes evt-glow {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+.evt-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 14px;
+  box-shadow: inset 0 0 30px -2px color-mix(in srgb, var(--c) 60%, transparent);
+  animation: evt-glow 1.25s ease-out forwards;
+}
+/* icon bounce on arrival */
+@keyframes evt-icon-pop {
+  0% { transform: scale(0.5); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.evt-icon-pop { animation: evt-icon-pop 0.5s cubic-bezier(0.2, 0.7, 0.3, 1.5) both; }
+/* a fresh event briefly flashes its accent ring */
+@keyframes feed-flash {
+  0% { box-shadow: 0 0 0 0 var(--ring, rgba(168,85,247,0.6)); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.feed-item-flash {
+  animation: feed-flash 1.1s ease-out forwards;
+}
+
+/* burn flame burst */
+@keyframes flame-rise {
+  0% { opacity: 0; transform: translateY(6px) scale(0.7); }
+  35% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-26px) scale(1.25); }
+}
+.flame-burst > span {
+  position: absolute;
+  bottom: 0;
+  font-size: 14px;
+  animation: flame-rise 1.2s ease-out forwards;
+}
+
+/* ── beautiful event cards (color-themed per kind via --c) ── */
+.evt-card {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--c) 13%, transparent);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--c) 7%, transparent),
+    color-mix(in srgb, var(--c) 2.5%, transparent) 46%,
+    rgba(255, 255, 255, 0.012)
+  );
+  overflow: hidden;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+.evt-card:hover {
+  /* no transform on hover: a transformed element with overflow:hidden +
+     border-radius clips its own gradient corners in Chromium. Inset glow only. */
+  border-color: color-mix(in srgb, var(--c) 34%, transparent);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--c) 11%, transparent),
+    color-mix(in srgb, var(--c) 3.5%, transparent) 46%,
+    rgba(255, 255, 255, 0.02)
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 16%, transparent),
+    inset 0 0 32px -8px color-mix(in srgb, var(--c) 36%, transparent);
+}
+/* the same event hovered in the sibling feed card — its twin lights up here */
+.evt-card.evt-linked {
+  border-color: color-mix(in srgb, var(--c) 42%, transparent);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--c) 12%, transparent),
+    color-mix(in srgb, var(--c) 4%, transparent) 46%,
+    rgba(255, 255, 255, 0.02)
+  );
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 26%, transparent),
+    0 0 20px -6px color-mix(in srgb, var(--c) 45%, transparent),
+    inset 0 0 32px -8px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.evt-accent {
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 75%, transparent), var(--c2, color-mix(in srgb, var(--c) 22%, transparent)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--c) 40%, transparent);
+}
+.evt-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
+  background: radial-gradient(
+    circle at 32% 26%,
+    color-mix(in srgb, var(--c) 20%, transparent),
+    color-mix(in srgb, var(--c) 4%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--c) 24%, transparent);
+  box-shadow: inset 0 0 14px color-mix(in srgb, var(--c) 10%, transparent),
+    0 0 16px -6px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.evt-tx {
+  transition: color 0.2s ease;
+}
+.evt-tx:hover {
+  color: var(--c);
+}
+@keyframes card-sheen {
+  0% { transform: translateX(-130%); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: translateX(130%); opacity: 0; }
+}
+.card-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    100deg,
+    transparent 22%,
+    color-mix(in srgb, var(--c) 26%, transparent) 50%,
+    transparent 78%
+  );
+  transform: translateX(-130%);
+  animation: card-sheen 1.15s ease-out forwards;
+}
+
+/* basket bento (event detail popup) — slow diagonal glint per tile + pop-in */
+@keyframes bento-sheen {
+  0% { background-position: -160% 0; }
+  100% { background-position: 260% 0; }
+}
+.bento-sheen {
+  pointer-events: none;
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  animation-name: bento-sheen;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes bento-tile-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+.bento-tile-in {
+  opacity: 0;
+  animation: bento-tile-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* event detail popup entrance */
+@keyframes evt-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.evt-modal-fade {
+  animation: evt-modal-fade 0.22s ease-out forwards;
+}
+@keyframes evt-modal-pop {
+  from { opacity: 0; transform: scale(0.94) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.evt-modal-pop {
+  animation: evt-modal-pop 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) forwards;
+}
+
+/* ticker marquee */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker-scroll var(--ticker-dur, 42s) linear infinite;
+}
+.ticker-mask:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+/* heartbeat EKG — the waveform scrolls leftward continuously */
+@keyframes ekg-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-800px); }
+}
+.ekg-scroll {
+  animation: ekg-scroll var(--ekg-dur, 7s) linear infinite;
+}
+@keyframes ekg-beat {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.4); opacity: 1; }
+}
+.ekg-beat {
+  animation: ekg-beat 1.1s ease-in-out infinite;
+  transform-origin: center;
+}
+/* one-shot ripple emitted when a new event lands */
+@keyframes ekg-ping {
+  0% { transform: scale(0.4); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.ekg-ping {
+  animation: ekg-ping 1s ease-out forwards;
+}
+/* whole-panel colour wash when an event lands — tinted to the action's colour */
+@keyframes hb-flash {
+  0% { opacity: 0; }
+  16% { opacity: 0.5; }
+  100% { opacity: 0; }
+}
+.hb-flash {
+  animation: hb-flash 0.95s ease-out forwards;
+}
+
+/* number flip on update */
+@keyframes stat-bump {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-3px); color: #fff; }
+  100% { transform: translateY(0); }
+}
+.stat-bump {
+  animation: stat-bump 0.5s ease-out;
+}
+
+/* glow ring helper (set --ring per event) */
+.glow-ring {
+  box-shadow: 0 0 0 1px var(--ring), 0 0 22px -6px var(--ring);
+}
+
+/* spinning ecosystem ring */
+@keyframes spectrum-spin { to { transform: rotate(360deg); } }
+.spectrum-root .spectrum-spin {
+  animation: spectrum-spin 22s linear infinite;
+  transform-origin: center;
+}
+
+/* studio basket: pixels sweep in from the right */
+@keyframes pixel-sweep {
+  from { opacity: 0; transform: translate3d(var(--sx, 40px), 0, 0); }
+  to { opacity: var(--o, 1); transform: translate3d(0, 0, 0); }
+}
+.pixel-sweep {
+  animation: pixel-sweep 0.55s cubic-bezier(0.22, 0.7, 0.25, 1) backwards;
+}
+
+/* hero pixel rainbow: each square pops in (swept left → right via per-pixel delay) */
+@keyframes prism-pixel-in {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* nav radio "now playing" equalizer bars */
+@keyframes radio-eq {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+/* radio live-fee burst — a fee detonates in place: a shockwave ring, a spray of
+   pixel sparks, and its value rising and fading. Each piece stays pinned to the
+   burst point via translate(-50%,-50%) baked into its keyframes. */
+@keyframes fee-ring {
+  0% { transform: translate(-50%, -50%) scale(0.15); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3.1); opacity: 0; }
+}
+.fee-ring {
+  animation: fee-ring 1.5s cubic-bezier(0.1, 0.6, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes fee-spark {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.2); opacity: 0; }
+}
+.fee-spark {
+  animation: fee-spark 1.15s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes fee-burst {
+  0% { transform: translate(-50%, calc(-50% + 12px)) scale(0.6); opacity: 0; }
+  14% { transform: translate(-50%, calc(-50% - 6px)) scale(1.1); opacity: 1; }
+  28% { transform: translate(-50%, calc(-50% - 10px)) scale(1); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(-50%, calc(-50% - 134px)) scale(0.97); opacity: 0; }
+}
+.fee-burst {
+  animation: fee-burst var(--dur, 3s) cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* live-fees counter pops when a new fee lands */
+@keyframes fee-pop {
+  0% { transform: scale(1); }
+  32% { transform: scale(1.22); filter: brightness(1.5); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+.fee-pop {
+  display: inline-block;
+  animation: fee-pop 0.62s cubic-bezier(0.2, 0.7, 0.3, 1.5);
+}
+
+/* ── ambient motion — the homepage's quiet idle life ─────────────────────── */
+/* nav drops in once on load */
+@keyframes nav-drop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+.nav-drop { animation: nav-drop 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* the primary CTA breathes its glow */
+@keyframes cta-breathe {
+  0%, 100% { box-shadow: 0 4px 20px rgba(147, 51, 234, 0.3); }
+  50% { box-shadow: 0 6px 32px rgba(147, 51, 234, 0.52); }
+}
+.spectrum-root .cta-breathe { animation: cta-breathe 4.5s ease-in-out 2.5s infinite; }
+
+/* the lifetime-revenue dome's halo breathes slowly */
+@keyframes dome-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.045); }
+}
+.dome-halo {
+  position: absolute;
+  inset: -16px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.15), transparent 70%);
+  animation: dome-breathe 6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* connector chips drift gently toward the strip they feed */
+@keyframes up-float {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, -3px); }
+}
+.up-float { animation: up-float 3.6s ease-in-out infinite; }
+
+/* /charts skeleton: a dash of line marching along the wave-to-be */
+@keyframes chart-draw {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -600; }
+}
+.chart-draw {
+  stroke-dasharray: 110 490;
+  animation: chart-draw 1.7s linear infinite;
+}
+
+/* the hero mark hovers */
+@keyframes mark-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.mark-float { animation: mark-float 5.5s ease-in-out 2s infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .spectrum-root .spectrum-letter,
+  .spectrum-root .spectrum-load,
+  .spectrum-root .rainbow-sweep,
+  .spectrum-root .reveal,
+  .feed-item-enter,
+  .ticker-track,
+  .ekg-scroll,
+  .ekg-beat,
+  .prism-pixel,
+  .nav-drop,
+  .mark-float,
+  .cta-breathe,
+  .pulse-live-dot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  /* purely decorative layers vanish; the connector keeps its centering */
+  .dome-halo {
+    display: none !important;
+  }
+  .up-float,
+  .chart-draw {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   MOTHERSHIP — motion referenced from inline styles.
+   Keyframes here survive the Tailwind v4 tree-shake; custom
+   CLASSES in this file do not — keep the classes inline.
+   ============================================================ */
+@keyframes ms-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes ms-skeleton {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes ms-flicker {
+  0% { opacity: 0.02; }
+  50% { opacity: 0.05; }
+  100% { opacity: 0.02; }
+}
+@keyframes ms-glitch {
+  0%, 100% { transform: translate(0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(-1px, -1px); }
+  60% { transform: translate(2px, 1px); }
+  80% { transform: translate(1px, -1px); }
+}
+/* boot intro: staged entrances, driven inline with animation-delay */
+@keyframes ms-intro-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* the boot cover: while <html data-ms-boot> (stamped by the parser-blocking
+   script in layout.tsx before first paint), a black sheet sits over EVERYTHING
+   so the site can never flash before the intro overlay mounts. The intro
+   removes the attribute one painted frame after its overlay is up. */
+html[data-ms-boot]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9999;
+}
+
+@keyframes ms-scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+/* authorize modal: the sheet slides up; the holo prism spins in thirds */
+@keyframes ms-sheet-up {
+  from { opacity: 0; transform: translateY(48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ms-prism-spin {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+/* the command deck materializes: panels blur-lift in, staggered (2026-08-03) */
+@keyframes ms-deck-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+/* how-it-works: money flowing along the split diagram's beams (dash march) */
+@keyframes ms-beam-flow {
+  to { stroke-dashoffset: -28; }
+}

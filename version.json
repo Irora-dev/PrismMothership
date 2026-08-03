@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.14",
+  "note": "Fast for everyone, not just whoever warmed an isolate: a complete feed response is now shared-cacheable (s-maxage + stale-while-revalidate) and, on Cloudflare Workers, written to the colo cache explicitly (a Worker response is not CDN-cached by default). Degraded responses are never cached, so a cold miss can never pin an empty state at the edge.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
