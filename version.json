@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.11",
+  "note": "The radio plays out of the box: with no local tracks it tunes into the reference station (streams prismbeat.xyz's playlist; override/disable with RADIO_SOURCE_URL). No audio files ship in the kit; local files always take precedence.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}

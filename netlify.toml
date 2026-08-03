@@ -1,0 +1,14 @@
+# Netlify build config for Prismbeat (Next.js 16 · App Router).
+#
+# Netlify's official Next.js runtime (@netlify/plugin-nextjs) turns the API routes
+# and dynamic pages into serverless functions automatically — nothing else to wire.
+# Set ALCHEMY_API_KEY (and any optional vars from .env.example) in the Netlify UI.
+
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
