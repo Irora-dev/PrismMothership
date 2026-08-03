@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.15",
+  "note": "HOSTING.md opens with an honest host comparison: what each platform does about keeping the chain-history scan between requests, and therefore how fast the site feels. Netlify (persistence + warmer ship in the repo) and self-host are fastest; Cloudflare Workers works but a cold isolate rebuilds from history.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
