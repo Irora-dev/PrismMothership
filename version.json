@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.16",
+  "note": "Radio actually plays: the audio element only asks for CORS when the tracks are local. A remote station's files are public MP3s on another host with no CORS headers, and crossOrigin=anonymous made the browser refuse them outright (verified: media error 4 with the attribute, loads fine without).",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
