@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.18",
+  "note": "Mobile hero: the two sentences of the headline own a line each on phones instead of wrapping mid-phrase, and rejoin on one line from sm up.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}

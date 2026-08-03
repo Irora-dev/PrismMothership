@@ -1,0 +1,21 @@
+# Netlify build config for Prismbeat (Next.js 16 · App Router).
+#
+# Netlify's official Next.js runtime (@netlify/plugin-nextjs) turns the API routes
+# and dynamic pages into serverless functions automatically — nothing else to wire.
+# Set ALCHEMY_API_KEY (and any optional vars from .env.example) in the Netlify UI.
+
+[build]
+  command = "npm run build"
+  # Pinned deliberately. With no publish directory declared here, whatever the
+  # dashboard's field happens to hold wins — and a fresh repo import that leaves
+  # it at the repo root fails the build outright ("publish directory cannot be
+  # the same as the base directory"), after a completely successful compile.
+  # Declaring it overrides the UI, so an import cannot be misconfigured into a
+  # failure. Observed on a real integrator's first Netlify import.
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
