@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.22",
-  "note": "Updating without a terminal: the kit ships an 'Update Mothership kit' GitHub Action \u2014 Actions tab, Run workflow, and it takes the newest release while keeping your site.config.json, then pushes so your host rebuilds.",
+  "version": "2026.08.03.23",
+  "note": "Documented the Alchemy allowlist trap where they configure the key: domain allowlists match the browser Origin header, this kit calls Alchemy from the server (no Origin), so any allowlist blocks all traffic and stats go dark. Learned from a live deploy.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

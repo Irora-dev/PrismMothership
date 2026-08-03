@@ -6,7 +6,7 @@ config is the same three env vars, set in the **host's dashboard** (never commit
 
 | var | required | what |
 |---|---|---|
-| `ALCHEMY_API_KEY` | yes | Ethereum mainnet reads (server-side only) |
+| `ALCHEMY_API_KEY` | yes | chain reads (server-side only — leave Alchemy's "Allowed Domains" EMPTY: it matches browser Origins, and server calls send none, so any allowlist blocks everything) |
 | `ROBINHOOD_RPC_URL` | no | defaults to the public Robinhood Chain RPC |
 | `ETHERSCAN_API_KEY` | no | live contract-verification badges |
 | `URL` | recommended | your canonical https URL (share images) — most hosts set it automatically |
