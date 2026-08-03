@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.17",
+  "note": "A fresh Netlify import can't be misconfigured into a failing build: netlify.toml now pins publish = .next, which overrides whatever the dashboard's publish-directory field holds (left at the repo root, the Next runtime aborts after a successful compile).",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}

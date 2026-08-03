@@ -1,0 +1,9 @@
+# Deploy to Cloudflare — the only values the deploy form needs.
+# (Everything else is optional tuning: see .env.example and docs/HOSTING.md.
+# The Deploy button reads THIS file for its variable prompts.)
+
+# Your Alchemy API key (free tier fine — one key powers Ethereum + Base reads)
+ALCHEMY_API_KEY=
+
+# Your canonical https URL, e.g. https://example.com (used for share images)
+URL=
