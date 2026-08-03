@@ -1,0 +1,51 @@
+# Update this site to the newest Mothership kit release — from GitHub, no terminal.
+#
+# Actions tab → "Update Mothership kit" → Run workflow. It takes every kit file
+# from the upstream release, KEEPS your site.config.json (your domain, platform
+# and trading mode), commits, and pushes — which makes your host rebuild.
+#
+# Works for forks AND for copies made with "Use this template" (those start their
+# own history, so a plain git merge has nothing in common to merge).
+name: Update Mothership kit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Take the newest kit release
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/Irora-dev/PrismMothership.git
+          git fetch --quiet upstream main
+
+          # your identity file is yours — set it aside, then put it back
+          cp site.config.json /tmp/site.config.json || true
+
+          git checkout upstream/main -- .
+
+          if [ -f /tmp/site.config.json ]; then cp /tmp/site.config.json site.config.json; fi
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Already on the newest release — nothing to do."
+            exit 0
+          fi
+
+          VERSION="$(node -p "require('./version.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -m "Update Mothership kit to $VERSION"
+          git push
+          echo "Updated to $VERSION — your host will rebuild from this push."
+          echo "### Updated to \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Your host rebuilds from this push. Check your site's /api/feed reports \`\"mode\":\"live\"\` once it deploys." >> "$GITHUB_STEP_SUMMARY"

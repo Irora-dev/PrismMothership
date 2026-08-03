@@ -57,9 +57,17 @@ The in-browser version of the wizard lives at **`/setup`** on your running site.
 
 ## Updating
 
-`npm run doctor` tells you when a newer release exists. To take it — this works
-whether you forked, cloned, or used **Use this template** (template copies start
-their own history, so a plain `git merge` has nothing in common to merge):
+**No terminal: click the button.** In your repo → **Actions** tab → **Update
+Mothership kit** → **Run workflow**. It pulls the newest release, keeps your
+`site.config.json`, commits, and pushes — your host rebuilds from that push.
+(First visit to the Actions tab may ask you to enable workflows. If you forked
+rather than templated, GitHub's own **Sync fork** button on your repo's front page
+does the same job.)
+
+`npm run doctor` also tells you when a newer release exists. To update from a
+terminal instead — this works whether you forked, cloned, or used **Use this
+template** (template copies start their own history, so a plain `git merge` has
+nothing in common to merge):
 
 ```sh
 git remote add upstream https://github.com/Irora-dev/PrismMothership.git   # once

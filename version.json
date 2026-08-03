@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.21",
-  "note": "Releases now build on top of the published history instead of replacing it, so integrators have a lineage they can actually merge; the README's update recipe works for template copies too (they start their own history).",
+  "version": "2026.08.03.22",
+  "note": "Updating without a terminal: the kit ships an 'Update Mothership kit' GitHub Action \u2014 Actions tab, Run workflow, and it takes the newest release while keeping your site.config.json, then pushes so your host rebuilds.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
