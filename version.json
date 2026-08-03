@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.9",
+  "note": "The Deploy to Cloudflare form now asks for exactly two values (ALCHEMY_API_KEY, URL): a minimal .dev.vars.example drives the prompts instead of the full .env.example, with binding descriptions. All other vars remain documented optional tuning.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}

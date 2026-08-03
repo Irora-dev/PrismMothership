@@ -1,0 +1,13 @@
+// Cloudflare Workers deploy config (used only if you deploy to Cloudflare —
+// see docs/HOSTING.md). Rename "name" to whatever you want your worker called.
+{
+  "name": "prism-mothership",
+  "main": ".open-next/worker.js",
+  "build": { "command": "npx opennextjs-cloudflare build" },
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}
