@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.20",
-  "note": "No more blur trap after a trade: the post-buy popup closes on backdrop click or Esc, scrolls when the card is taller than the viewport, and sits on the same layer as the authorize sheet. Claim page: the claimed-all-time figure carries its USD value.",
+  "version": "2026.08.03.21",
+  "note": "Releases now build on top of the published history instead of replacing it, so integrators have a lineage they can actually merge; the README's update recipe works for template copies too (they start their own history).",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

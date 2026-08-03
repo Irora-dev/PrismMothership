@@ -56,12 +56,24 @@ npm run doctor               # config + env + update check
 The in-browser version of the wizard lives at **`/setup`** on your running site.
 
 ## Updating
+
+`npm run doctor` tells you when a newer release exists. To take it — this works
+whether you forked, cloned, or used **Use this template** (template copies start
+their own history, so a plain `git merge` has nothing in common to merge):
+
 ```sh
-git remote add upstream https://github.com/Irora-dev/PrismMothership.git  # once
-git fetch upstream && git merge upstream/main && npm install && npm run doctor
+git remote add upstream https://github.com/Irora-dev/PrismMothership.git   # once
+git fetch upstream
+git checkout upstream/main -- .          # take every kit file from the new release
+git checkout HEAD -- site.config.json    # keep YOUR domain/platform/trading mode
+npm install && npm run doctor            # doctor must end "All clear"
+git commit -am "Update Mothership kit"
+git push                                 # your host rebuilds
 ```
-Your identity (site.config.json, .env.local) always wins the merge; the kit wins
-everywhere else. `npm run doctor` tells you when a newer release exists.
+
+`.env.local` holds your keys and is gitignored, so nothing above can touch it.
+If you forked (rather than templated) and have no local changes beyond
+`site.config.json`, `git merge upstream/main` works too.
 
 ## What this is (and isn't)
 This software renders public on-chain data. It holds no funds, takes no cut, and
