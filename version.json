@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.13",
+  "note": "Cold start fits in one request: the lifetime-fee scan fetches its chunks concurrently instead of one after another (full cold scan measured 8.7s, was over 25s). This is what made Cloudflare Workers deploys serve empty forever \u2014 Workers kill post-response work, so a scan that outlived the request restarted from zero every time and never cached.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
