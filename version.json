@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.10",
+  "note": "Workers deploys get data on first try: wrangler.jsonc ships 25s feed/stats budgets (Workers kills post-response work, so the background cache-warm never happens there \u2014 the scan must finish inside the request). .env.example now ships only ALCHEMY_API_KEY and URL as active lines; every optional knob is commented documentation, so automated deploy forms stop demanding twenty values.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
