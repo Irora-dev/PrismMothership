@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.7",
+  "note": "Platform intent is understood, never silently rewritten: the wizard maps 'cloudflare pages' (and friends) to the cloudflare/Workers target with an explanation, hard-errors on unknown platforms instead of falling back to netlify, and the agent runbook now pins the exact platform menu agents may offer.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
