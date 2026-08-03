@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.6",
+  "note": "Release authorship is Irora Labs \u2014 the mirror's commits no longer carry any personal git identity. Kit content unchanged from .5 (AI bootstrap README, template repo, Cloudflare-ready, placeholder site config).",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}

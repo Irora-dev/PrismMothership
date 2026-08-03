@@ -1,0 +1,36 @@
+{
+  "name": "prism-mothership",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live activity tracker for the Prism token ecosystem — watch every buy-and-burn and LP-fee event as it happens.",
+  "scripts": {
+    "dev": "next dev --port 3090",
+    "prebuild": "node scripts/build-radio-manifest.mjs",
+    "build": "next build",
+    "start": "next start --port 3090",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "radio:manifest": "node scripts/build-radio-manifest.mjs",
+    "setup": "node create/index.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.9",
+    "chart.js": "^4.5.1",
+    "ethers": "^6.13.4",
+    "modern-screenshot": "^4.7.0",
+    "next": "^16.1.6",
+    "react": "^19.2.3",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.8.0"
+  },
+  "license": "CC0-1.0"
+}
