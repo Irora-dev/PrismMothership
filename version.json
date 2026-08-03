@@ -1,0 +1,5 @@
+{
+  "version": "2026.08.03.8",
+  "note": "One-click Cloudflare: the README leads with a Deploy to Cloudflare button (copies the repo to your GitHub, wires build-on-push, prompts for vars, deploys). wrangler.jsonc now carries the build command so a bare `npx wrangler deploy` \u2014 or any dashboard default \u2014 runs the whole OpenNext build itself; the adapter and wrangler ship as pinned devDependencies; `npm run deploy` / `npm run preview` added.",
+  "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
+}
