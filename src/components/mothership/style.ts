@@ -14,6 +14,7 @@ export const C = {
   orange: "#FF5E00",
   cyan: "#00F0FF",
   purple: "#9D00FF",
+  indigo: "#5C7CFA", // Lightrunner's moonlit-night accent
   red: "#FF003C", // signal-lost / error accent
   ground: "#030409",
 };

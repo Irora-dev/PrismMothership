@@ -31,6 +31,9 @@ interface NavItem {
   label: string;
   href: string;
   icon: string;
+  /** small pill after the label, e.g. "Coming soon" — never a Link when disabled */
+  badge?: string;
+  disabled?: boolean;
 }
 
 // dev-only entries are filtered out of production builds (NODE_ENV is inlined)
@@ -57,6 +60,10 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
     items: [
       { label: "Spectrum Ecosystem", href: "/spectrum", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
       { label: "Burn pipeline", href: "/burn", icon: "M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" },
+      // Lightrunner's own on-chain analytics page doesn't exist yet — the game
+      // itself is live at playlightrunner.com (the App Store card links there).
+      // disabled: true so the rail renders a label, never a Link to nowhere.
+      { label: "Lightrunner Analytics", href: "/lightrunner", icon: "M13 10V3L4 14h7v7l9-11h-7z", badge: "Coming soon", disabled: true },
     ],
   },
   {
@@ -303,6 +310,38 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
               <div className="space-y-2">
                 {g.items.map((n) => {
                   const active = pathname === n.href;
+                  // flex-wrap, not nowrap: "Lightrunner Analytics" is already the
+                  // rail's longest label, and its badge pill had nowhere to go but
+                  // overflow past the 256px rail edge (measured: 37px past it).
+                  // Wrapping only kicks in when a row is actually too tight — every
+                  // shorter label+badge combination still sits on one line.
+                  const inner = (
+                    <>
+                      <NavIcon d={n.icon} />
+                      <span
+                        className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium transition-opacity"
+                        style={{ opacity: railOpen ? 1 : 0 }}
+                      >
+                        <span className="whitespace-nowrap">{n.label}</span>
+                        {n.badge && (
+                          <span
+                            className="shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+                            style={{ borderColor: `${C.orange}40`, background: `${C.orange}14`, color: C.orange }}
+                          >
+                            {n.badge}
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  );
+                  // disabled = no page to send anyone to yet: a span, never a Link
+                  if (n.disabled) {
+                    return (
+                      <div key={n.href} className="flex w-full cursor-default items-center gap-4 rounded-xl px-3 py-3 text-slate-500">
+                        {inner}
+                      </div>
+                    );
+                  }
                   return (
                     <Link
                       key={n.href}
@@ -312,13 +351,7 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
                       }`}
                       style={active ? { boxShadow: "0 0 15px rgba(255,255,255,0.1)" } : undefined}
                     >
-                      <NavIcon d={n.icon} />
-                      <span
-                        className="whitespace-nowrap text-sm font-medium transition-opacity"
-                        style={{ opacity: railOpen ? 1 : 0 }}
-                      >
-                        {n.label}
-                      </span>
+                      {inner}
                     </Link>
                   );
                 })}

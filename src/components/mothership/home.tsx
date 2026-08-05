@@ -646,6 +646,41 @@ export function MothershipHome() {
             visit="View the berth"
           />
           <CollectibleCard
+            name="Lightrunner"
+            tagline="An onchain roguelike bullet hell. Weekly leagues — run the dark, score high, win the pot."
+            accent={C.indigo}
+            badge={{ label: "New", pulse: true }}
+            texture="/mothership/cards/card-lightrunner.webp"
+            onOpen={() => window.open("https://playlightrunner.com", "_blank", "noopener,noreferrer")}
+            art={
+              <>
+                <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(circle at 50% 60%, ${C.indigo}26 0%, rgba(0,0,0,0) 70%)` }} />
+                <CardStars />
+                {/* the wordmark as a product shot, same stage-floor treatment as
+                    the other cards' brand marks */}
+                <div className="relative z-10 w-[86%]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/mothership/lightrunner-logo.webp"
+                    alt="Lightrunner"
+                    className="w-full"
+                    style={{ filter: `drop-shadow(0 12px 24px rgba(0,0,0,0.6)) drop-shadow(0 0 28px ${C.indigo}33)` }}
+                  />
+                </div>
+              </>
+            }
+            mainSlot={
+              <div className="flex h-full flex-col justify-center">
+                <div className="text-3xl font-bold tracking-tight text-slate-600" style={{ fontFamily: MONO }}>
+                  —
+                </div>
+                <p className="mt-1.5 text-[10px] leading-snug text-slate-500">A new season's pot lands here once one's live.</p>
+              </div>
+            }
+            burnNote="Weekly leagues, paid from the league pot"
+            visit="Play Lightrunner ↗"
+          />
+          <CollectibleCard
             name="Your app here"
             tagline="The Mothership has open docking for anything that builds on PRISM."
             accent={C.cyan}

@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.23",
-  "note": "Documented the Alchemy allowlist trap where they configure the key: domain allowlists match the browser Origin header, this kit calls Alchemy from the server (no Origin), so any allowlist blocks all traffic and stats go dark. Learned from a live deploy.",
+  "version": "2026.08.03.24",
+  "note": "Lightrunner joins the App Store as a new ecosystem app (card + external link to playlightrunner.com); a disabled 'Lightrunner Analytics \u2014 Coming soon' entry sits under Ecosystem activity in the nav for its future on-chain analytics page. NavItem gained badge/disabled support.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
