@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.33",
-  "note": "Private-DM portfolio surface: /link connects a wallet read-only (bot-minted code claimed on the site \u2014 or paste an address), /me reads your Spectrum positions across every chain, /reweight builds a target and hands you the page to sign. Plus the group suggestion card, and docs/SPECTRUM-INTEGRATION.md \u2014 the explicit bot-to-Spectrum contract (create-page prefill, cross-origin link claim, launch attribution) with the on-chain immutability finding that shapes it.",
+  "version": "2026.08.03.34",
+  "note": "A surface gate: npm run verify boots the app and exercises every card (byte floors + params-must-change-output), every command (no undefined/NaN/$0.00/escaped tags, DM-only stays DM-only), and every link the bot hands out. Wired as a hard release gate. It immediately caught a real one: the launch button 404ed when SPECTRUM_CREATE_URL was unset, so the bot now explains instead of inventing a dead link.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

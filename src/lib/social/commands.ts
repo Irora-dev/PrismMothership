@@ -428,7 +428,7 @@ async function splitText(args: string): Promise<{ text: string; createHref: stri
     "",
     ...legs.map((l, i) => `· <b>${l.weight}%</b> $${esc(l.symbol)} — ${esc(fmtPrice(matches[i].priceUsd))}${matches[i].change24hPct != null ? ` (${esc(pct(matches[i].change24hPct))} 24h)` : ""}`),
     "",
-    `<a href="${href}">Make it real — weights, name and signing on the create page →</a>`,
+    href ? `<a href="${href}">Make it real — weights, name and signing on the create page →</a>` : CREATE_UNSET,
   ].join("\n");
   return { text, createHref: href };
 }
@@ -878,10 +878,18 @@ async function leaderboardText(): Promise<string> {
 // BasketBuilder → V2 factory) where the user sets weights, names it, and SIGNS.
 // Contract: ?tokens=<addr,…>&chain=<eth|base>. Set SPECTRUM_CREATE_URL to the
 // operator origin's /createbasket; the fallback is only a placeholder.
-function createUrl(addresses: string[], chain: "ethereum" | "base"): string {
-  const base = (process.env.SPECTRUM_CREATE_URL || `${siteUrl()}/createbasket`).replace(/\/$/, "");
-  return `${base}?tokens=${addresses.join(",")}&chain=${chainParam(chain)}`;
+// The create page lives on the SPECTRUM operator site, a different origin (see
+// docs/SPECTRUM-INTEGRATION.md). If the operator hasn't pointed us at it, we say
+// so — we do NOT invent {site}/createbasket, which this kit does not serve: a
+// launch button landing on a 404 is worse than one that explains itself. The
+// surface gate asserts every link the bot emits resolves, and caught exactly
+// this.
+function createUrl(addresses: string[], chain: "ethereum" | "base"): string | null {
+  const configured = process.env.SPECTRUM_CREATE_URL;
+  if (!configured) return null;
+  return `${configured.replace(/\/$/, "")}?tokens=${addresses.join(",")}&chain=${chainParam(chain)}`;
 }
+const CREATE_UNSET = "⚙️ The operator hasn't wired the create page yet (<code>SPECTRUM_CREATE_URL</code>) — the composition above is ready the moment they do.";
 
 // /createbasket <tickers> — validate each on ETH/Base (real + liquid via DexScreener),
 // enforce ONE chain (baskets are single-chain), cap 2–8, then hand off to the operator
@@ -941,7 +949,9 @@ async function createBasketText(args: string): Promise<{ text: string; createHre
   );
   lines.push(
     "",
-    `<a href="${href}"><b>${usable.length} tokens</b> on ${chainLabel(chosen)}${note} — set weights, name it &amp; sign on the create page →</a>`,
+    href
+      ? `<a href="${href}"><b>${usable.length} tokens</b> on ${chainLabel(chosen)}${note} — set weights, name it &amp; sign on the create page →</a>`
+      : `<b>${usable.length} tokens</b> on ${chainLabel(chosen)}${note}.\n${CREATE_UNSET}`,
     "",
     "💰 You earn a creator-fee slice on every trade of your basket. An active one can more than cover the launch cost.",
   );
@@ -1120,7 +1130,7 @@ async function launchDraftText(chatId: number | string): Promise<{ text: string;
     "",
     ...tokens.map((t) => `• <b>$${esc(t.symbol)}</b> · 🔎 <a href="${dexUrl(t.chain, t.address)}">verify</a>`),
     "",
-    `<a href="${href}">Make it real — weights, name and signing on the create page →</a>`,
+    href ? `<a href="${href}">Make it real — weights, name and signing on the create page →</a>` : CREATE_UNSET,
     "",
     "💰 Whoever launches earns a creator-fee slice on every trade. An active basket can more than cover the launch cost.",
   ].join("\n");

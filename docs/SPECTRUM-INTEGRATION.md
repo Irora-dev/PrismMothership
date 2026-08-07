@@ -17,9 +17,11 @@ ends at one URL:
 ${SPECTRUM_CREATE_URL}?tokens=0xAAA…,0xBBB…&chain=eth|base
 ```
 
-- `SPECTRUM_CREATE_URL` is set in the bot deployment's env. It **must** point at
-  the operator create page. The fallback (`{site}/createbasket`) does not exist
-  in this kit, so an unset var means every launch button lands on a 404.
+- `SPECTRUM_CREATE_URL` is set in the bot deployment's env and **must** point at
+  the operator create page. Unset, the bot does not invent a URL — it says the
+  operator hasn't wired the create page yet, and shows the composition anyway.
+  (It used to default to `{site}/createbasket`, which this kit doesn't serve;
+  the surface gate caught the 404.)
 - `tokens` — comma-separated addresses, already validated by the bot (real,
   tradeable, liquid, all on one chain).
 - `chain` — `eth` or `base`. Baskets are single-chain at the contract level.
@@ -86,3 +88,31 @@ capability the bot flow needs is: an authorised weight update on a live basket
 new-version path above is the honest one — and it is worth designing the
 lineage fields into the bot's registry now so the migration reads as continuity
 rather than a fresh start.
+
+---
+
+## The surface gate (`npm run verify`)
+
+Every change to these surfaces runs through `scripts/verify.mjs` before it can
+be released. It exercises the running app rather than the source, because every
+bug that reached a user here passed the typechecker:
+
+| what it asserts | the bug it would have caught |
+|---|---|
+| every page + `/api/feed` respond | a route dying on deploy |
+| every card renders, above a per-kind byte floor | Satori silently dropping webp art (a 105KB empty frame vs 590KB real one) |
+| param-driven cards produce **different bytes for different inputs** | a card ignoring its data and rendering the same frame forever |
+| every command answers, with no `undefined` / `NaN` / `$0.00` / escaped tags | a formatter printing a sub-cent token as `$0.00`; an un-escape leaving literal `<b>` |
+| DM-only commands refuse in groups | a wallet address leaking into a group chat |
+| **every URL the bot emits resolves** | a launch button pointing at a page that does not exist |
+
+It runs as gate 2b of `release/release.mjs` — the release boots the built app
+and fails if anything is broken. `--skip-verify` exists but wants a reason.
+
+Two notes from building it. The gate found two bugs *in itself* on its first
+run (`$0.00` substring-matching the legitimate `$0.00000282`, and the bot's own
+absolute URLs reading as third-party), which is the expected shape of a new
+gate — tune the assertions until every failure is a real one, then trust it.
+And its first true finding was the create-page 404, which is why the bot now
+declines to hand out a link when `SPECTRUM_CREATE_URL` is unset instead of
+inventing one.

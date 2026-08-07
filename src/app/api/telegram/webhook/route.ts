@@ -30,7 +30,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const dry = req.nextUrl.searchParams.get("dry") === "1" && process.env.NODE_ENV !== "production";
+    // Dry-run computes the reply and returns it WITHOUT sending to Telegram.
+    // Allowed in production only when a webhook secret is configured (and thus
+    // was matched above) — otherwise a stranger could make the bot do work. The
+    // surface gate depends on this: without it, a gate run against a real build
+    // can't see replies at all, which is precisely where it matters most.
+    const dry =
+      req.nextUrl.searchParams.get("dry") === "1" &&
+      (process.env.NODE_ENV !== "production" || Boolean(process.env.TELEGRAM_WEBHOOK_SECRET));
 
     // ── button taps: answer fast, refresh the living card in place ──────────
     const cb = (update as { callback_query?: Parameters<typeof handleCallback>[0] }).callback_query;
