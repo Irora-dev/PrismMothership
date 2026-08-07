@@ -432,3 +432,42 @@ export function planFunding(pf: PortfolioView, needUsd: number, targetChain?: st
 
 /** the batcher that executes a whole plan in one transaction — not yet on-chain */
 export const portfolioBatcherLive = (): boolean => /^0x[a-fA-F0-9]{40}$/.test(process.env.PORTFOLIO_BATCHER_ADDRESS || "");
+
+// ── Site → bot: the arriving-with-a-portfolio path ───────────────────────────
+// The reverse of the code above. A visitor who already has a wallet connected
+// on the site gets a deep link that carries a one-time code; opening it in
+// Telegram binds the wallet and their book is there on the first screen. No
+// copying, no pasting, no explaining.
+//
+// The code grants read-only visibility of PUBLIC on-chain data, so a mis-minted
+// one exposes nothing that an explorer would not. It still expires and burns on
+// use, because a link left in a group chat should not keep working.
+export async function mintSiteLink(address: string): Promise<string> {
+  const code = newLinkCode();
+  try {
+    const b = await blob();
+    const rec = { address, at: Date.now(), fromSite: true };
+    if (b) await b.setJSON(`site:${code}`, rec);
+    else mem.set(`site:${code}`, rec);
+  } catch {
+    /* best-effort */
+  }
+  return code;
+}
+
+/** the bot side of that link: bind the wallet the site already knew about */
+export async function claimSiteLink(code: string, userId: number | string): Promise<string | null> {
+  const key = `site:${code.trim().toUpperCase()}`;
+  try {
+    const b = await blob();
+    const raw = b ? await b.get(key, { type: "json" }) : mem.get(key);
+    const rec = raw as { address?: string; at?: number } | null | undefined;
+    if (!rec?.address || !rec.at || Date.now() - rec.at > CODE_TTL_MS) return null;
+    await linkWallet(userId, rec.address);
+    if (b) await b.setJSON(key, {});
+    else mem.delete(key);
+    return rec.address;
+  } catch {
+    return null;
+  }
+}

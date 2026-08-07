@@ -15,7 +15,7 @@ import { observe, recentTickers, hotTickers } from "./group-store";
 import {
   getLinkedWallet, linkWallet, unlinkWallet, newLinkCode, stashLinkCode, readPortfolio, readFullPortfolio,
   getSnapshot, putSnapshot, snapshotOf, getAlertState, putAlertState, DEFAULT_PREFS,
-  planFunding, portfolioBatcherLive,
+  planFunding, portfolioBatcherLive, claimSiteLink,
 } from "./dm-portfolio";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
@@ -875,8 +875,86 @@ export async function handleCallback(cb: TgCallback): Promise<CallbackAction> {
     };
   }
   if (data === "d:no") return { toast: "Fair. I'll keep watching quietly." };
+  if (data === "o:link") {
+    return { reply: { chatId: chat.id, text: await linkText(userId, ""), parseMode: "HTML", disablePreview: true } };
+  }
+  if (data === "o:look") {
+    return {
+      reply: {
+        chatId: chat.id,
+        text: [
+          "🔻 <b>The Prism ecosystem, live</b>",
+          "",
+          "<code>/price</code> what PRISM is worth",
+          "<code>/burn</code> what's been destroyed",
+          "<code>/baskets</code> every Spectrum basket",
+          "",
+          "Connect a wallet any time with <code>/link</code> and I'll add your own positions.",
+        ].join("\n"),
+        parseMode: "HTML",
+        disablePreview: true,
+        photoUrl: cardUrl("digest"),
+      },
+    };
+  }
   return {};
 }
+
+// ── Onboarding ───────────────────────────────────────────────────────────────
+// Three ways in, three first screens. Short copy, one obvious next tap, and
+// nothing asked for that isn't needed yet.
+//
+//   A · arriving from the site with a wallet already connected  → book on screen 1
+//   B · cold DM, knows nothing                                  → one question
+//   C · met the bot in someone's group                          → answer, then invite
+const BOT = BOT_USERNAME;
+
+function welcomeText(): string {
+  return [
+    "🔻 <b>Spectra</b>",
+    "",
+    "Live eyes on the Prism ecosystem, and your own positions across every chain.",
+    "",
+    "Connect a wallet and I'll show your book. Nothing is signed and nothing is granted, I only read what the chain already makes public.",
+  ].join("\n");
+}
+const welcomeButtons = (): TgButtons => [
+  [{ text: "👛 Connect a wallet", data: "o:link" }],
+  [{ text: "👀 Just show me the ecosystem", data: "o:look" }],
+];
+
+async function arrivedText(userId: number, address: string): Promise<{ text: string; card?: string }> {
+  const pf = await readFullPortfolio(address);
+  await putSnapshot(userId, snapshotOf(pf)); // /pnl starts counting from arrival
+  const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+  if (!pf.positions.length) {
+    return {
+      text: [
+        `👛 <b>Wallet linked</b> · <code>${esc(short)}</code>`,
+        "",
+        "Nothing in it yet that I can see. When you hold a basket or a token, it shows up here.",
+        "",
+        "<code>/me</code> your book · <code>/alerts</code> what I'll tell you",
+      ].join("\n"),
+    };
+  }
+  const top = pf.positions.slice(0, 4).map((p) => `· <b>$${esc(p.symbol)}</b> ${esc(fmtUsdFull(p.valueUsd))}`);
+  return {
+    text: [
+      `👛 <b>You're in.</b> <code>${esc(short)}</code>`,
+      "",
+      `<b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${pf.positions.length} position${pf.positions.length === 1 ? "" : "s"}`,
+      ...top,
+      "",
+      "<code>/pnl</code> how it's doing · <code>/reweight</code> change the shape · <code>/alerts</code> what I'll tell you",
+    ].join("\n"),
+    card: cardUrl(`me&total=${Math.round(pf.totalUsd)}&legs=${encodeURIComponent(pf.positions.slice(0, 8).map((p) => `${p.symbol}:${Math.max(1, Math.round(p.valueUsd))}`).join(","))}`),
+  };
+}
+
+// In a group, the bot answers the room. The invite to a private chat is a
+// button on its own, never a paragraph in every reply.
+const dmInviteButtons = (): TgButtons => [[{ text: "👛 See your own positions", url: `https://t.me/${BOT}?start=hi` }]];
 
 function helpText(): string {
   return [
@@ -1215,12 +1293,11 @@ export async function handleGroupMessage(update: TgUpdate): Promise<TgReply | nu
 
 function greetingText(): string {
   return [
-    "gm 🔻 I'm <b>the Prism bot</b>.",
+    "gm 🔻 I'm <b>Spectra</b>.",
     "",
-    "Live eyes on Spectrum baskets + the PRISM buy &amp; burn. Try <b>/baskets</b>, <b>/leaderboard</b>, <b>/burn</b> — or just @mention me a question.",
+    "Ask me anything about the Prism ecosystem. <code>/burn</code>, <code>/baskets</code>, <code>/price</code>.",
     "",
-    "And talk tickers — when this group agrees on something, I'll help you make it a token. 🧺",
-    "/help for everything.",
+    "Talk tickers and I'll help this group turn them into one token. 🧺",
   ].join("\n");
 }
 
@@ -1234,7 +1311,7 @@ export function handleMembership(update: TgUpdate): TgReply | null {
   const was = ev.old_chat_member?.status;
   const added = (now === "member" || now === "administrator") && (was === "left" || was === "kicked" || !was);
   if (!added) return null;
-  return { chatId: ev.chat.id, text: greetingText(), parseMode: "HTML", disablePreview: true };
+  return { chatId: ev.chat.id, text: greetingText(), parseMode: "HTML", disablePreview: true, photoUrl: cardUrl("welcome"), buttons: dmInviteButtons() };
 }
 
 // ── Collaborative draft basket (participatory create) ─────────────────────────
@@ -1426,9 +1503,27 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
     const isDm = msg.chat.type === "private";
     const args = (m[2] || "").trim();
     switch (cmd) {
-      case "start":
+      case "start": {
+        // t.me/Bot?start=w_CODE — arriving from the site, wallet already known
+        const payload = args.trim();
+        if (isDm && /^w_[A-Z0-9]{4,10}$/i.test(payload)) {
+          const addr = await claimSiteLink(payload.slice(2), msg.from?.id ?? 0);
+          if (addr) {
+            const a = await arrivedText(msg.from?.id ?? 0, addr);
+            return wrap(a.text, a.card);
+          }
+          return wrap(["That link has expired.", "", "Open the site again and tap <b>Open in Telegram</b>, or send <code>/link</code> and I'll make you a fresh one."].join("\n"));
+        }
+        if (!isDm) return wrap(helpText(), cardUrl("help"));
+        const linked = await getLinkedWallet(msg.from?.id ?? 0);
+        if (linked) {
+          const m3 = await meText(msg.from?.id ?? 0);
+          return wrap(m3.text, m3.card);
+        }
+        return { chatId: msg.chat.id, text: welcomeText(), parseMode: "HTML", disablePreview: true, photoUrl: cardUrl("welcome"), buttons: welcomeButtons() };
+      }
       case "help":
-        return wrap(helpText(), cardUrl("help"));
+        return wrap(helpText(), cardUrl("help"), isDm ? undefined : dmInviteButtons());
       case "burn":
         return wrap(await burnText(), cardUrl("burn"));
       case "bigburn":

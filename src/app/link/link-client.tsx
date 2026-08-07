@@ -12,6 +12,18 @@ export function LinkClient({ code }: { code: string }) {
   const { account, openPicker } = useWallet();
   const [state, setState] = useState<"idle" | "linking" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  // No code in the URL means they arrived from the site rather than the bot.
+  // Connect, then hand them a deep link that opens Telegram already linked.
+  const [tgUrl, setTgUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (code || !account || tgUrl) return;
+    fetch("/api/link/mint", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account }) })
+      .then((r) => r.json())
+      .then((d: { ok?: boolean; url?: string }) => {
+        if (d.ok && d.url) setTgUrl(d.url);
+      })
+      .catch(() => {});
+  }, [code, account, tgUrl]);
 
   useEffect(() => {
     if (!account || !code || state !== "idle") return;
@@ -45,9 +57,32 @@ export function LinkClient({ code }: { code: string }) {
 
           {!code ? (
             <>
-              <h1 className="mt-3 text-3xl font-black tracking-tight text-white">No code in this link</h1>
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-white">Your positions, in Telegram</h1>
               <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                Send <code className="text-slate-300">/link</code> to the bot in a private message — it replies with a fresh link that lands here.
+                Connect the wallet you already use, then open the bot. Your book is on the first screen. Read only, nothing signed.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-4">
+                {tgUrl ? (
+                  <a
+                    href={tgUrl}
+                    className="rounded-xl px-6 py-3 text-sm font-bold text-white transition-all hover:brightness-110"
+                    style={{ background: `linear-gradient(90deg, ${C.purple}cc, ${C.cyan}cc)`, boxShadow: `0 0 20px ${C.cyan}40` }}
+                  >
+                    Open in Telegram →
+                  </a>
+                ) : (
+                  <button
+                    onClick={openPicker}
+                    className="rounded-xl px-6 py-3 text-sm font-bold text-white transition-all hover:brightness-110"
+                    style={{ background: `linear-gradient(90deg, ${C.purple}cc, ${C.cyan}cc)`, boxShadow: `0 0 20px ${C.cyan}40` }}
+                  >
+                    {account ? "Preparing…" : "Connect wallet"}
+                  </button>
+                )}
+                {short && <span className="text-[11px] text-slate-600" style={{ fontFamily: MONO }}>{short}</span>}
+              </div>
+              <p className="mt-4 text-[11px] leading-relaxed text-slate-600">
+                Already in the bot? Send <code className="text-slate-500">/link</code> there instead.
               </p>
             </>
           ) : state === "done" ? (

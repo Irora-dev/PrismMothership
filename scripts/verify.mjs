@@ -98,6 +98,7 @@ const CARDS = [
   { kind: "pnl&total=1200&delta=200&legs=AAA:800", min: 20_000, vary: "pnl&total=900&delta=-300&legs=ZZZ:900" },
   { kind: "buy&sym=AAA&amount=%24100&from=trim%20BBB", min: 20_000, vary: "buy&sym=ZZZ&amount=%24900&from=cash" },
   { kind: "reweight&from=sell%20AAA", min: 20_000, vary: "reweight&from=buy%20ZZZ" },
+  { kind: "welcome", min: 25_000 },
 ];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
@@ -113,7 +114,7 @@ async function gateCards() {
   section("② Cards render real pixels");
   for (const c of CARDS) {
     try {
-      const buf = await renderCard(c.kind);
+      const buf = await withRetry(() => renderCard(c.kind), c.kind);
       if (buf.length < c.min) {
         fail(`card ${c.kind}`, `only ${buf.length}B (floor ${c.min}) — art or data probably missing`);
         continue;
@@ -168,6 +169,8 @@ const COMMANDS = [
   ["/watchlist", GROUP],
   ["/token PEPE", GROUP, { slow: true }],
   ["/split 60 PEPE 40 MOG", GROUP, { slow: true }],
+  ["/start", DM],
+  ["/start", GROUP],
   ["/link", DM],
   ["/me", DM],
   ["/reweight", DM],
@@ -179,6 +182,22 @@ const COMMANDS = [
 ];
 
 let seq = 70000;
+// A gate that cries wolf gets ignored, and these checks lean on third-party
+// APIs (DexScreener) that rate-limit. So a request is retried once before it is
+// called a failure — a flake and a regression must not look the same.
+async function withRetry(fn, label) {
+  try {
+    return await fn();
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (/HTTP 429|timeout|fetch failed|ECONN/i.test(msg)) {
+      await new Promise((r) => setTimeout(r, 2500));
+      return fn();
+    }
+    throw new Error(`${label}: ${msg}`);
+  }
+}
+
 async function botSay(text, chat) {
   const body = {
     update_id: ++seq,
@@ -203,7 +222,7 @@ async function gateCommands() {
   for (const [text, chat, opts = {}] of COMMANDS) {
     if (QUICK && opts.slow) continue;
     try {
-      const d = await botSay(text, chat);
+      const d = await withRetry(() => botSay(text, chat), text);
       const reply = d.reply || d.suggestion;
       if (!reply || !reply.text?.trim()) {
         fail(`cmd ${text}`, "no reply");
@@ -294,6 +313,7 @@ const ADVERSARIAL = [
   { text: "/buy 0x0000000000000000000000000000000000000000 100", chat: GROUP, must: /Couldn't find/i, why: "the zero address must not resolve" },
   { text: "/reweight 60 PEPE 40 MOG", chat: GROUP, must: /private message/i, why: "portfolio actions must stay out of groups" },
   { text: "/me", chat: GROUP, must: /private message/i, why: "a wallet must never be read into a group" },
+  { text: "/start w_NOTAREALCODE", chat: DM, must: /expired|Spectra/i, why: "a bogus onboarding code must not link anything" },
 ];
 
 async function gateMoneyPaths() {
@@ -301,7 +321,7 @@ async function gateMoneyPaths() {
   for (const c of ADVERSARIAL) {
     if (QUICK) continue;
     try {
-      const d = await botSay(c.text, c.chat);
+      const d = await withRetry(() => botSay(c.text, c.chat), c.text);
       const t = (d.reply || d.suggestion)?.text || "";
       if (!t) {
         fail(`adversarial ${c.text}`, "no reply at all");

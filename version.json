@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.38",
-  "note": "Money-path defences. Ticker collisions are disclosed rather than silently resolved (four tokens answer to PEPE today), every money action shows the contract address, burn and zero addresses are refused outright, sizes are sanity-checked against the book, and funding plans are audited against invariants before a human sees them. The gate gained an adversarial suite that probes each of these; 92 checks.",
+  "version": "2026.08.03.39",
+  "note": "Onboarding, three ways in. Arriving from the site: connect a wallet there, tap Open in Telegram, and your book is on the first screen. Cold in a DM: one card, one question, two buttons. Met in a group: the bot answers the room and offers a private chat as a button rather than a paragraph.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

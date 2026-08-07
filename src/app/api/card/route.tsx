@@ -464,6 +464,22 @@ export async function GET(req: NextRequest) {
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Basket not found</div>
     );
+  } else if (kind === "welcome") {
+    // first screen. One promise, three proofs, no instructions.
+    title = "SPECTRA"; accent = C.green;
+    const s = await stats();
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", fontSize: 62, fontWeight: 800, color: "#fff", letterSpacing: -2, lineHeight: 1.1 }}>Your positions,</div>
+        <div style={{ display: "flex", fontSize: 62, fontWeight: 800, letterSpacing: -2, color: C.green }}>live in Telegram.</div>
+        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 18 }}>Every chain, one place. Read only, nothing signed.</div>
+        <div style={{ display: "flex", marginTop: 34 }}>
+          <Stat label="FEES TO HOLDERS · ALL TIME" value={s ? usd(s.feesToHoldersTotal * s.ethUsd, 0) : "—"} accent={C.green} />
+          <Stat label="PRISM BURNED" value={s ? num(s.totalBurned) : "—"} accent={C.orange} />
+          <Stat label="LIVE BASKETS" value={s ? num(s.indexCount, 0) : "—"} accent={C.purple} />
+        </div>
+      </div>
+    );
   } else if (kind === "me" || kind === "pnl") {
     // the member's book — a Spectrum product surface. Positions as a bento so
     // the shape is readable at a glance, not a list of numbers to parse.
