@@ -18,6 +18,31 @@ export async function GET(req: NextRequest) {
   }
   const dryRun = req.nextUrl.searchParams.get("dry") === "1";
   try {
+    // weekly=1 → the Monday recap: every registered group gets its watchlist
+    // scoreboard + league card. Per-chat sends (not the broadcast channels).
+    if (req.nextUrl.searchParams.get("weekly") === "1") {
+      const { registeredChats, getRegistry } = await import("@/lib/social/group-registry");
+      const { sendTelegramMessage } = await import("@/lib/social/telegram");
+      const site = (process.env.URL || "").replace(/\/$/, "");
+      const armed = process.env.SOCIAL_ENABLED === "1" || process.env.SOCIAL_ENABLED === "true";
+      const sent: (number | string)[] = [];
+      for (const chatId of (await registeredChats()).slice(0, 100)) {
+        const reg = await getRegistry(chatId);
+        if (!reg.basket && !reg.watchlist.length) continue;
+        const text = [
+          "📅 <b>The week on your radar</b>",
+          "",
+          reg.watchlist.length ? "How the group's watchlist is doing → /watchlist" : "",
+          reg.basket ? `Your basket $${reg.basket.symbol} vs the league → /league` : "",
+          "",
+          "A watchlist that keeps winning is a basket waiting to exist: /createbasket 👀",
+        ].filter(Boolean).join("\n");
+        const photo = site ? `${site}/api/card?kind=${reg.watchlist.length ? `watchlist&chat=${encodeURIComponent(String(chatId))}` : "league"}&t=${Math.floor(Date.now() / 3_600_000)}` : undefined;
+        if (!dryRun && armed) await sendTelegramMessage(chatId, text, { parseMode: "HTML", disablePreview: true, photoUrl: photo });
+        sent.push(chatId);
+      }
+      return NextResponse.json({ weekly: true, dryRun, chats: sent.length });
+    }
     // digest=1 → the once-a-day summary post instead of the event pass
     if (req.nextUrl.searchParams.get("digest") === "1") {
       const text = await dailyDigestText(getProvider(), getBaseProvider());

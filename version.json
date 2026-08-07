@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.28",
-  "note": "Event cards for the auto-poster (burns and basket launches post as branded images with the amount huge), leaderboard/prism/launch card kinds, and /portfolio \u2014 Spectrum Portfolio stats (volume, fees, unique users) answering an honest launching-soon with its berth card until the batcher contracts are on-chain; PORTFOLIO_BATCHER_ADDRESS is the auto-light seam. Card fetches walk all origins.",
+  "version": "2026.08.03.29",
+  "note": "Group tools: /ourbasket (register the group's basket \u2014 live stats + card, honest de-listing on factory rotation), /watch //watchlist (shared radar, performance since added), /token (instant intel, micro-cap-safe prices), /split (allocation sketch \u2192 create page), /league (group baskets ranked), bare-CA-paste intel, Monday weekly recap posts, and cards for all of it. Registry stores addresses only and resolves through the discovery layer, so the coming Spectrum factory update needs zero bot changes.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

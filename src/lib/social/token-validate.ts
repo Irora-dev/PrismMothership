@@ -10,6 +10,8 @@ export interface TokenMatch {
   chain: "ethereum" | "base";
   liquidityUsd: number;
   priceUsd: number;
+  change24hPct?: number | null;
+  volume24hUsd?: number | null;
 }
 
 interface DexSearchPair {
@@ -17,6 +19,8 @@ interface DexSearchPair {
   baseToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string;
   liquidity?: { usd?: number };
+  priceChange?: { h24?: number };
+  volume?: { h24?: number };
 }
 
 // Resolve one ticker to its highest-liquidity token, or null if it isn't a
@@ -47,6 +51,8 @@ export async function validateTicker(query: string, chain?: "ethereum" | "base")
         chain: p.chainId as "ethereum" | "base",
         liquidityUsd: p.liquidity?.usd ?? 0,
         priceUsd: Number(p.priceUsd) || 0,
+        change24hPct: p.priceChange?.h24 ?? null,
+        volume24hUsd: p.volume?.h24 ?? null,
       }));
     if (!matches.length) return null;
     matches.sort((a, b) => b.liquidityUsd - a.liquidityUsd);
@@ -81,6 +87,8 @@ export async function validateAddress(address: string, chain?: "ethereum" | "bas
         chain: p.chainId as "ethereum" | "base",
         liquidityUsd: p.liquidity?.usd ?? 0,
         priceUsd: Number(p.priceUsd) || 0,
+        change24hPct: p.priceChange?.h24 ?? null,
+        volume24hUsd: p.volume?.h24 ?? null,
       }));
     if (!matches.length) return null;
     matches.sort((a, b) => b.liquidityUsd - a.liquidityUsd);

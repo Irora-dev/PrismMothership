@@ -14,6 +14,8 @@ import { detectTickers, type TickerTally } from "./group-signal";
 import { observe, recentTickers } from "./group-store";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
+import { validateAddress } from "./token-validate";
+import { getRegistry, setGroupBasket, clearGroupBasket, addWatch, removeWatch, registeredChats, MAX_WATCHLIST } from "./group-registry";
 
 const MIN_BASKET_TOKENS = 2;
 const MAX_BASKET_TOKENS = 8; // operator composer max
@@ -60,6 +62,7 @@ function pct(n: number | null | undefined, d = 1): string {
 interface TgChat {
   id: number | string;
   type?: string;
+  title?: string; // group name — stored on registration, shown in the league
 }
 interface TgMessage {
   message_id: number;
@@ -267,6 +270,178 @@ async function portfolioText(): Promise<string> {
   ].join("\n");
 }
 
+// price formatter that survives micro-cap tokens: fmtUsdFull rounds anything
+// under $1 to two decimals, which renders a $0.0000009 token as "$0.00" — the
+// exact tokens groups paste. Keep 3 significant figures however small.
+function fmtPrice(n?: number | null): string {
+  if (n == null || !isFinite(n) || n <= 0) return "—";
+  if (n >= 1) return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const digits = Math.min(12, Math.max(2, 2 - Math.floor(Math.log10(n))));
+  return `$${n.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+// label a stored (string) chain without trusting the union — a factory/chain
+// rotation must never crash old registry rows
+function chainName(c: string): string {
+  return c === "base" ? "Base" : c === "robinhood" ? "Robinhood Chain" : c === "ethereum" ? "Ethereum" : c;
+}
+
+// ── /ourbasket — the group's own basket, registered once, live ever after ────
+async function ourBasketText(chatId: number | string, args: string, chatTitle?: string): Promise<string> {
+  const q = args.trim();
+  if (q.toLowerCase() === "clear") {
+    await clearGroupBasket(chatId);
+    return "Cleared. Register a new one any time: <code>/ourbasket TICKER</code>";
+  }
+  if (q) {
+    const needle = q.replace(/^\$/, "").toLowerCase();
+    const all = await listIndexes();
+    const hit = all.find((b) => b.address.toLowerCase() === needle) || all.find((b) => b.symbol.toLowerCase() === needle);
+    if (!hit) return `Couldn't find a live Spectrum basket matching <b>${esc(q)}</b>. See them all with /baskets — then <code>/ourbasket TICKER</code>.`;
+    await setGroupBasket(chatId, { address: hit.address, chain: hit.chain, symbol: hit.symbol }, chatTitle);
+    return [
+      `📌 <b>$${esc(hit.symbol)}</b> is now this group's basket.`,
+      "",
+      "/ourbasket any time for its live numbers — and it enters the group league (/league).",
+    ].join("\n");
+  }
+  const reg = await getRegistry(chatId);
+  if (!reg.basket) return "No basket registered yet. <code>/ourbasket TICKER</code> (or a basket address) — see them all with /baskets.";
+  const all = await listIndexes();
+  const live = all.find((b) => b.address.toLowerCase() === reg.basket!.address.toLowerCase());
+  if (!live) {
+    // honest de-listing: the site's discovery layer no longer tracks it (e.g. a
+    // factory rotation) — say so, never show stale numbers
+    return `📌 <b>$${esc(reg.basket.symbol)}</b> is registered but no longer tracked by the site (factory rotation?). Re-register with <code>/ourbasket TICKER</code>.`;
+  }
+  return [
+    `📌 <b>$${esc(live.symbol)}</b> — this group's basket · ${esc(chainName(live.chain))}`,
+    "",
+    `· AUM: <b>${esc(fmtUsdFull(live.aumUsd))}</b>`,
+    `· 24h: <b>${esc(pct(live.change24hPct))}</b>`,
+    `· Holdings: ${live.basketLength} tokens`,
+    "",
+    `${siteUrl()}/baskets/${live.address}`,
+  ].join("\n");
+}
+
+// ── /token — read-only intel for any ticker or pasted CA ─────────────────────
+async function tokenText(args: string): Promise<string> {
+  const q = args.trim();
+  if (!q) return "Usage: <code>/token TICKER</code> or <code>/token 0x…</code>";
+  const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
+  if (!t) return `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`;
+  const liqWarn = t.liquidityUsd < MIN_LIQUIDITY_USD ? " ⚠️ thin" : "";
+  return [
+    `🔎 <b>$${esc(t.symbol)}</b> · ${esc(t.name)} · ${esc(chainName(t.chain))}`,
+    "",
+    `· Price: <b>${esc(fmtPrice(t.priceUsd))}</b>${t.change24hPct != null ? ` (${esc(pct(t.change24hPct))} 24h)` : ""}`,
+    `· Liquidity: ${esc(fmtUsdFull(t.liquidityUsd))}${liqWarn}`,
+    t.volume24hUsd != null ? `· Volume 24h: ${esc(fmtUsdFull(t.volume24hUsd))}` : "",
+    `· CA: <code>${esc(t.address)}</code>`,
+    "",
+    `🔬 <a href="${dexUrl(t.chain, t.address)}">chart &amp; pools</a> · add it to the group draft: <code>/propose $${esc(t.symbol)} why</code>`,
+  ].filter(Boolean).join("\n");
+}
+
+// ── /watch · /unwatch · /watchlist — the group's shared radar ────────────────
+async function watchText(chatId: number | string, args: string, userId: number, chatTitle?: string): Promise<string> {
+  const q = args.trim();
+  if (!q) return "Usage: <code>/watch TICKER</code> (or a CA). The group's list: /watchlist";
+  const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
+  if (!t) return `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`;
+  const st = await addWatch(chatId, { address: t.address, symbol: t.symbol, chain: t.chain, priceAtAdd: t.priceUsd, addedAt: Date.now(), by: userId || undefined }, chatTitle);
+  if (st === "dupe") return `<b>$${esc(t.symbol)}</b> is already on the list — /watchlist to see it.`;
+  if (st === "full") return `The list is full (${MAX_WATCHLIST}). Drop one first: <code>/unwatch TICKER</code>`;
+  return [
+    `👁 Watching <b>$${esc(t.symbol)}</b> from ${esc(fmtPrice(t.priceUsd))}.`,
+    "",
+    "Performance is measured from right now — /watchlist for the scoreboard.",
+  ].join("\n");
+}
+async function unwatchText(chatId: number | string, args: string): Promise<string> {
+  const q = args.trim();
+  if (!q) return "Usage: <code>/unwatch TICKER</code>";
+  return (await removeWatch(chatId, q)) ? `Dropped <b>${esc(q.replace(/^\$/, "").toUpperCase())}</b> from the watchlist.` : `That wasn't on the list — /watchlist to see it.`;
+}
+async function watchlistText(chatId: number | string): Promise<string> {
+  const reg = await getRegistry(chatId);
+  if (!reg.watchlist.length) return "The group watchlist is empty. <code>/watch TICKER</code> to start it — performance is tracked from the moment you add.";
+  const rows = await Promise.all(
+    reg.watchlist.map(async (w) => {
+      const live = await validateAddress(w.address);
+      const chg = live && w.priceAtAdd > 0 ? ((live.priceUsd - w.priceAtAdd) / w.priceAtAdd) * 100 : null;
+      return { w, live, chg };
+    }),
+  );
+  rows.sort((a, b) => (b.chg ?? -Infinity) - (a.chg ?? -Infinity));
+  const days = (t: number) => Math.max(1, Math.round((Date.now() - t) / 86_400_000));
+  return [
+    "👁 <b>Group watchlist</b> — since each was added",
+    "",
+    ...rows.map(({ w, live, chg }) =>
+      `${chg != null && chg >= 0 ? "🟢" : chg != null ? "🔴" : "⚪"} <b>$${esc(w.symbol)}</b> · ${chg != null ? esc(pct(chg)) : "n/a"} in ${days(w.addedAt)}d${live ? ` · now ${esc(fmtPrice(live.priceUsd))}` : " · (unpriceable)"}`,
+    ),
+    "",
+    "A watchlist that keeps winning is a basket waiting to exist: <code>/createbasket</code> 👀",
+  ].join("\n");
+}
+
+// ── /split — sketch an allocation, hand execution to the create page ─────────
+interface SplitLeg { weight: number; symbol: string }
+function parseSplit(args: string): SplitLeg[] | null {
+  const legs: SplitLeg[] = [];
+  const re = /(\d{1,3})\s*%?\s+\$?([A-Za-z0-9]{1,15})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(args))) legs.push({ weight: Number(m[1]), symbol: m[2].toUpperCase() });
+  if (legs.length < 2 || legs.length > MAX_BASKET_TOKENS) return null;
+  const sum = legs.reduce((s, l) => s + l.weight, 0);
+  if (sum < 90 || sum > 110) return null;
+  return legs;
+}
+async function splitText(args: string): Promise<string> {
+  const legs = parseSplit(args);
+  if (!legs) return ["Sketch an allocation, e.g. <code>/split 60 STONK 40 PONS</code>", "", `2–${MAX_BASKET_TOKENS} tokens, weights summing to ~100.`].join("\n");
+  const first = await validateTicker(legs[0].symbol);
+  if (!first) return `Couldn't find <b>$${esc(legs[0].symbol)}</b> on Ethereum or Base.`;
+  const rest = await Promise.all(legs.slice(1).map((l) => validateTicker(l.symbol, first.chain)));
+  const missing = legs.slice(1).filter((_, i) => !rest[i]);
+  if (missing.length) return `${missing.map((l) => `<b>$${esc(l.symbol)}</b>`).join(", ")} not found on ${esc(chainName(first.chain))} — a basket lives on ONE chain.`;
+  const matches = [first, ...(rest as TokenMatch[])];
+  return [
+    `🧺 <b>The split</b> · ${esc(chainName(first.chain))}`,
+    "",
+    ...legs.map((l, i) => `· <b>${l.weight}%</b> $${esc(l.symbol)} — ${esc(fmtPrice(matches[i].priceUsd))}${matches[i].change24hPct != null ? ` (${esc(pct(matches[i].change24hPct))} 24h)` : ""}`),
+    "",
+    "Make it real — weights, name and signing happen on the create page:",
+    createUrl(matches.map((t) => t.address), first.chain),
+  ].join("\n");
+}
+
+// ── /league — every registered group basket, ranked ──────────────────────────
+async function leagueText(): Promise<string> {
+  const chats = (await registeredChats()).slice(0, 50);
+  const entries: { title: string; symbol: string; address: string; aumUsd: number; chg: number | null }[] = [];
+  const all = await listIndexes();
+  for (const id of chats) {
+    const reg = await getRegistry(id);
+    if (!reg.basket) continue;
+    const live = all.find((b) => b.address.toLowerCase() === reg.basket!.address.toLowerCase());
+    if (!live) continue; // de-listed (rotation) — silently out of the standings
+    entries.push({ title: reg.title || "a group", symbol: live.symbol, address: live.address, aumUsd: live.aumUsd, chg: live.change24hPct });
+  }
+  if (!entries.length) return "No group baskets registered yet. Put yours in the league: <code>/ourbasket TICKER</code>";
+  entries.sort((a, b) => (b.chg ?? -Infinity) - (a.chg ?? -Infinity));
+  const medal = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : ` ${i + 1}.`);
+  return [
+    "🏆 <b>Group basket league</b> — 24h",
+    "",
+    ...entries.slice(0, 10).map((e, i) => `${medal(i)} <b>$${esc(e.symbol)}</b> · ${esc(pct(e.chg))} · ${esc(fmtUsdFull(e.aumUsd))} — ${esc(e.title)}`),
+    "",
+    "Enter your group: <code>/ourbasket TICKER</code>",
+  ].join("\n");
+}
+
 function lightrunnerText(): string {
   return [
     "🌒 <b>Lightrunner</b>",
@@ -296,6 +471,13 @@ function helpText(): string {
     "/quote &lt;eth&gt; · live buy quote",
     "/wallet &lt;0x…&gt; · holdings &amp; claimable fees",
     "/portfolio · Spectrum Portfolio stats",
+    "",
+    "<b>Group tools</b>",
+    "/ourbasket &lt;ticker&gt; · register the group's basket, then live stats",
+    "/watch &lt;ticker&gt; · /watchlist · the group's shared radar",
+    "/token &lt;ticker|0x…&gt; · instant read-only intel",
+    "/split 60 X 40 Y · sketch an allocation → create page",
+    "/league · group baskets, ranked",
     "/lightrunner · the onchain roguelike",
     "/ca · the PRISM contract address",
     "/links · every official link",
@@ -568,6 +750,13 @@ export async function handleGroupMessage(update: TgUpdate): Promise<TgReply | nu
   if (!msg || typeof msg.text !== "string" || !msg.chat) return null;
   if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") return null;
   if (msg.text.trim().startsWith("/")) return null; // commands aren't chatter
+  // a bare pasted CA (the whole message is one address) = the ask-for-intel
+  // gesture — answer with the read-only token card. Deliberately narrow: only
+  // an address-only message replies, so ordinary chatter is never interrupted.
+  const bare = msg.text.trim();
+  if (/^0x[a-fA-F0-9]{40}$/.test(bare)) {
+    return { chatId: msg.chat.id, text: await tokenText(bare), parseMode: "HTML", disablePreview: true, replyTo: msg.message_id };
+  }
   const tickers = detectTickers(msg.text);
   if (!tickers.length) return null;
   const obs = await observe(msg.chat.id, msg.from?.id ?? 0, tickers, Date.now());
@@ -797,6 +986,26 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await quoteText(args));
       case "wallet":
         return wrap(await walletText(args));
+      case "ourbasket":
+      case "mybasket":
+        return wrap(await ourBasketText(msg.chat.id, args, msg.chat.title), cardUrl(`ourbasket&chat=${encodeURIComponent(String(msg.chat.id))}`));
+      case "token":
+      case "ti":
+        return wrap(await tokenText(args));
+      case "watch":
+        return wrap(await watchText(msg.chat.id, args, msg.from?.id ?? 0, msg.chat.title));
+      case "unwatch":
+        return wrap(await unwatchText(msg.chat.id, args));
+      case "watchlist":
+      case "wl":
+        return wrap(await watchlistText(msg.chat.id), cardUrl(`watchlist&chat=${encodeURIComponent(String(msg.chat.id))}`));
+      case "split": {
+        const legs = parseSplit(args);
+        const spec = legs ? legs.map((l) => `${l.weight}:${l.symbol}`).join(",") : "";
+        return wrap(await splitText(args), legs ? cardUrl(`split&spec=${encodeURIComponent(spec)}`) : undefined);
+      }
+      case "league":
+        return wrap(await leagueText(), cardUrl("league"));
       case "portfolio":
       case "spectrumportfolio":
       case "portfoliostats":

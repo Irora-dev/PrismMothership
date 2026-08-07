@@ -1,5 +1,8 @@
 import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
+import { listIndexes } from "@/lib/spectrum/index-data";
+import { getRegistry, registeredChats } from "@/lib/social/group-registry";
+import { validateAddress } from "@/lib/social/token-validate";
 
 // ── Live stat cards for the Telegram bot (and anything else) ─────────────────
 // GET /api/card?kind=digest|price|burn|earned → a 1200×630 branded PNG with
@@ -225,6 +228,105 @@ export async function GET(req: NextRequest) {
         ))}
         {!rows.length ? <div style={{ display: "flex", fontSize: 40, color: "#64748b" }}>Baskets are loading…</div> : null}
       </div>
+    );
+  } else if (kind === "ourbasket") {
+    // the group's registered basket, live — resolved through the discovery
+    // layer at render time so a factory rotation just changes what resolves
+    title = "OUR BASKET"; accent = C.purple;
+    const chat = req.nextUrl.searchParams.get("chat") || "";
+    const reg = chat ? await getRegistry(chat) : null;
+    const live = reg?.basket ? (await listIndexes()).find((b) => b.address.toLowerCase() === reg.basket!.address.toLowerCase()) : null;
+    body = live ? (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", fontSize: 130, fontWeight: 800, color: "#fff", letterSpacing: -4 }}>${live.symbol.slice(0, 12)}</div>
+          <div style={{ display: "flex", fontSize: 60, fontWeight: 800, color: (live.change24hPct ?? 0) >= 0 ? C.green : "#ff5a7a", marginLeft: 34, marginBottom: 16 }}>
+            {live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(1)}%` : "—"}
+          </div>
+        </div>
+        <div style={{ display: "flex", marginTop: 30 }}>
+          <Stat label="AUM" value={usd(live.aumUsd, 0)} accent={C.purple} />
+          <Stat label="24H" value={live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(2)}%` : "—"} accent={(live.change24hPct ?? 0) >= 0 ? C.green : C.orange} />
+          <Stat label="HOLDINGS" value={num(live.basketLength, 0)} accent={C.cyan} />
+        </div>
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No basket registered — /ourbasket TICKER</div>
+    );
+  } else if (kind === "watchlist") {
+    title = "GROUP WATCHLIST"; accent = C.cyan;
+    const chat = req.nextUrl.searchParams.get("chat") || "";
+    const reg = chat ? await getRegistry(chat) : null;
+    const rows = reg
+      ? (await Promise.all(
+          reg.watchlist.slice(0, 6).map(async (w) => {
+            const live = await validateAddress(w.address).catch(() => null);
+            const chg = live && w.priceAtAdd > 0 ? ((live.priceUsd - w.priceAtAdd) / w.priceAtAdd) * 100 : null;
+            return { sym: w.symbol, chg };
+          }),
+        )).sort((a, b) => (b.chg ?? -Infinity) - (a.chg ?? -Infinity))
+      : [];
+    const maxAbs = Math.max(10, ...rows.map((x) => Math.abs(x.chg ?? 0)));
+    body = rows.length ? (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {rows.map((x, i) => (
+          <div key={x.sym} style={{ display: "flex", alignItems: "center", marginTop: i ? 14 : 0 }}>
+            <div style={{ display: "flex", width: 250, fontSize: 36, fontWeight: 800, color: "#fff" }}>${x.sym.slice(0, 11)}</div>
+            <div style={{ display: "flex", width: Math.max(24, (Math.abs(x.chg ?? 0) / maxAbs) * 480), height: 26, borderRadius: 13, background: (x.chg ?? 0) >= 0 ? C.green : "#ff5a7a" }} />
+            <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: (x.chg ?? 0) >= 0 ? C.green : "#ff5a7a", marginLeft: 20 }}>
+              {x.chg != null ? `${x.chg >= 0 ? "+" : ""}${x.chg.toFixed(1)}%` : "n/a"}
+            </div>
+          </div>
+        ))}
+        <div style={{ display: "flex", fontSize: 21, color: "#64748b", marginTop: 22 }}>since each was added · /watch to extend the radar</div>
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty radar — /watch TICKER starts it</div>
+    );
+  } else if (kind === "league") {
+    title = "GROUP LEAGUE · 24H"; accent = C.green;
+    const all = await listIndexes();
+    const entries: { t: string; sym: string; chg: number | null; aum: number }[] = [];
+    for (const id of (await registeredChats()).slice(0, 50)) {
+      const reg = await getRegistry(id);
+      if (!reg.basket) continue;
+      const live = all.find((b) => b.address.toLowerCase() === reg.basket!.address.toLowerCase());
+      if (live) entries.push({ t: reg.title || "a group", sym: live.symbol, chg: live.change24hPct, aum: live.aumUsd });
+    }
+    entries.sort((a, b) => (b.chg ?? -Infinity) - (a.chg ?? -Infinity));
+    body = entries.length ? (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {entries.slice(0, 5).map((e, i) => (
+          <div key={e.sym + i} style={{ display: "flex", alignItems: "center", marginTop: i ? 16 : 0 }}>
+            <div style={{ display: "flex", width: 66, fontSize: 40 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}</div>
+            <div style={{ display: "flex", width: 260, fontSize: 38, fontWeight: 800, color: "#fff" }}>${e.sym.slice(0, 10)}</div>
+            <div style={{ display: "flex", width: 250, fontSize: 32, fontWeight: 800, color: (e.chg ?? 0) >= 0 ? C.green : "#ff5a7a" }}>{e.chg != null ? `${e.chg >= 0 ? "+" : ""}${e.chg.toFixed(2)}%` : "—"}</div>
+            <div style={{ display: "flex", flexGrow: 1, fontSize: 26, color: "#94a3b8" }}>{e.t.slice(0, 24)}</div>
+          </div>
+        ))}
+        <div style={{ display: "flex", fontSize: 21, color: "#64748b", marginTop: 24 }}>enter your group: /ourbasket TICKER</div>
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No group baskets yet — /ourbasket TICKER</div>
+    );
+  } else if (kind === "split") {
+    title = "THE SPLIT"; accent = C.purple;
+    const spec = (req.nextUrl.searchParams.get("spec") || "").slice(0, 200);
+    const chain = (req.nextUrl.searchParams.get("chain") || "").slice(0, 20);
+    const legs = spec.split(",").map((p) => { const [w, s] = p.split(":"); return { w: Math.max(0, Math.min(100, Number(w) || 0)), s: (s || "").slice(0, 12).toUpperCase() }; }).filter((l) => l.s && l.w > 0).slice(0, 8);
+    body = legs.length ? (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {chain ? <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>{chain.toUpperCase()} · ONE BASKET</div> : null}
+        {legs.map((l, i) => (
+          <div key={l.s} style={{ display: "flex", alignItems: "center", marginTop: i || chain ? 16 : 0 }}>
+            <div style={{ display: "flex", width: 130, fontSize: 42, fontWeight: 800, color: "#fff" }}>{l.w}%</div>
+            <div style={{ display: "flex", width: Math.max(30, (l.w / 100) * 560), height: 32, borderRadius: 16, background: `linear-gradient(90deg, ${RAINBOW[i % RAINBOW.length]}, ${RAINBOW[(i + 2) % RAINBOW.length]})` }} />
+            <div style={{ display: "flex", fontSize: 36, fontWeight: 800, color: "#e2e8f0", marginLeft: 22 }}>${l.s}</div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>/split 60 X 40 Y</div>
     );
   } else if (kind === "portfolio") {
     // Spectrum Portfolio berth card — honest empty until the batcher contracts
