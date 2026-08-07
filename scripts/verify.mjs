@@ -279,6 +279,49 @@ async function gateLinks(urls) {
   }
 }
 
+// ── 4b. MONEY-PATH DEFENCES ──────────────────────────────────────────────────
+// These commands don't move funds, they DIRECT them — so the gate probes them
+// adversarially rather than happily. Each case is a way a user loses money or
+// an attacker profits, and the expected behaviour is refusal or disclosure.
+const ADVERSARIAL = [
+  { text: "/buy PEPE -100", chat: GROUP, mustNot: /Funded by/, must: /🛑|more than zero/i, why: "a negative size must be refused" },
+  { text: "/buy PEPE 0", chat: GROUP, must: /🛑|more than zero/i, why: "a zero size must be refused" },
+  { text: "/buy PEPE 999999999999", chat: GROUP, must: /🛑|check the number/i, why: "an absurd size must be refused" },
+  { text: "/buy PEPE abc", chat: GROUP, must: /🛑|isn't a number/i, why: "a non-numeric size must be refused" },
+  { text: "/buy PEPE 100", chat: GROUP, must: /0x[a-fA-F0-9]{40}/, why: "a money action must always show the contract address" },
+  { text: "/token PEPE", chat: GROUP, must: /0x[a-fA-F0-9]{40}/, why: "token intel must show the address it means" },
+  { text: "/token NOTAREALTOKEN12345", chat: GROUP, must: /Couldn't find/i, why: "an unknown ticker must not resolve to something" },
+  { text: "/buy 0x0000000000000000000000000000000000000000 100", chat: GROUP, must: /Couldn't find/i, why: "the zero address must not resolve" },
+  { text: "/reweight 60 PEPE 40 MOG", chat: GROUP, must: /private message/i, why: "portfolio actions must stay out of groups" },
+  { text: "/me", chat: GROUP, must: /private message/i, why: "a wallet must never be read into a group" },
+];
+
+async function gateMoneyPaths() {
+  section("④b Money paths refuse what they should");
+  for (const c of ADVERSARIAL) {
+    if (QUICK) continue;
+    try {
+      const d = await botSay(c.text, c.chat);
+      const t = (d.reply || d.suggestion)?.text || "";
+      if (!t) {
+        fail(`adversarial ${c.text}`, "no reply at all");
+        continue;
+      }
+      if (c.mustNot && c.mustNot.test(t)) {
+        fail(`adversarial ${c.text}`, `${c.why} — but it proceeded: "${t.slice(0, 80).replace(/\n/g, " ")}"`);
+        continue;
+      }
+      if (c.must && !c.must.test(t)) {
+        fail(`adversarial ${c.text}`, `${c.why} — got: "${t.slice(0, 90).replace(/\n/g, " ")}"`);
+        continue;
+      }
+      ok(`adversarial ${c.text} — ${c.why}`);
+    } catch (e) {
+      fail(`adversarial ${c.text}`, String(e.message || e));
+    }
+  }
+}
+
 // ── 5. the numbers people trade on are legible ───────────────────────────────
 async function gateNumbers() {
   if (QUICK) return;
@@ -308,6 +351,7 @@ await gateHealth();
 await gateCards();
 const urls = await gateCommands();
 await gateLinks(urls);
+await gateMoneyPaths();
 await gateNumbers();
 
 console.log(`\n${"─".repeat(52)}`);

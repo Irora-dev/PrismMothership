@@ -20,6 +20,7 @@ import {
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
 import { validateAddress } from "./token-validate";
+import { resolveSafely, checkAmountUsd, auditFunding, plausibleUsd } from "./guards";
 import { getRegistry, setGroupBasket, clearGroupBasket, addWatch, removeWatch, registeredChats, touchChat, MAX_WATCHLIST } from "./group-registry";
 import type { TgButtons } from "./telegram";
 
@@ -343,12 +344,18 @@ async function ourBasketText(chatId: number | string, args: string, chatTitle?: 
 async function tokenText(args: string): Promise<{ text: string; card?: string }> {
   const q = args.trim();
   if (!q) return { text: "Usage: <code>/token TICKER</code> or <code>/token 0x…</code>" };
-  const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
-  if (!t) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.` };
+  const safe = await resolveSafely(q);
+  if (!safe) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.` };
+  const t = safe.match;
   const card = cardUrl(
     `token&sym=${encodeURIComponent(t.symbol)}&name=${encodeURIComponent(t.name.slice(0, 40))}&chain=${encodeURIComponent(chainName(t.chain))}&ca=${t.address}&price=${encodeURIComponent(fmtPrice(t.priceUsd))}&liq=${encodeURIComponent(fmtUsdFull(t.liquidityUsd))}${t.change24hPct != null ? `&chg=${t.change24hPct.toFixed(2)}` : ""}`,
   );
   const liqWarn = t.liquidityUsd < MIN_LIQUIDITY_USD ? " ⚠️ thin" : "";
+  // ambiguity is stated, never resolved silently — the ticker-collision scam
+  // works precisely by looking like the token you meant
+  const ambiguity = safe.rivals.length
+    ? ["", `⚠️ <b>${safe.rivals.length} other token${safe.rivals.length === 1 ? "" : "s"} use $${esc(t.symbol)}.</b> This is the deepest pool (${Math.round(safe.dominance * 100)}% of the ticker's liquidity) — verify the address below before sending anything.`]
+    : [];
   const text = [
     `🔎 <b>$${esc(t.symbol)}</b> · ${esc(t.name)} · ${esc(chainName(t.chain))}`,
     "",
@@ -356,6 +363,8 @@ async function tokenText(args: string): Promise<{ text: string; card?: string }>
     `· Liquidity: ${esc(fmtUsdFull(t.liquidityUsd))}${liqWarn}`,
     t.volume24hUsd != null ? `· Volume 24h: ${esc(fmtUsdFull(t.volume24hUsd))}` : "",
     `· CA: <code>${esc(t.address)}</code>`,
+    "",
+    ...ambiguity,
     "",
     `🔬 <a href="${dexUrl(t.chain, t.address)}">chart &amp; pools</a> · add it to the group draft: <code>/propose $${esc(t.symbol)} why</code>`,
   ].filter(Boolean).join("\n");
@@ -510,6 +519,7 @@ async function meText(userId: number): Promise<{ text: string; card?: string }> 
   const lines = pf.positions
     .slice(0, 10)
     .map((p) => `· <b>$${esc(p.symbol)}</b> — ${esc(fmtUsdFull(p.valueUsd))}${p.change24hPct != null ? ` (${esc(pct(p.change24hPct))})` : ""} · ${esc(chainName(p.chain))}`);
+  if (!plausibleUsd(pf.totalUsd)) return { text: "I read something implausible from the chain just now — I'd rather show nothing than a wrong number. Try again in a minute. 🔧" };
   const chains = new Set(pf.positions.map((p) => p.chain)).size;
   return {
     text: [
@@ -641,10 +651,16 @@ async function buyText(userId: number, isDm: boolean, args: string): Promise<{ t
   if (!parts.length) return { text: "Usage: <code>/buy PEPE 100</code> or <code>/buy 0x… 100</code> — the amount is in USD.", href: null };
   const q = parts[0];
   const usd = Number(parts[1]);
-  const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
-  if (!t) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`, href: null };
+  const safe = await resolveSafely(q);
+  if (!safe) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`, href: null };
+  const t = safe.match;
   const href = `https://matcha.xyz/tokens/${t.chain}/${t.address}`;
   const sized = Number.isFinite(usd) && usd > 0;
+  // a fat-fingered size is a money bug — refuse before pricing anything
+  if (parts[1] !== undefined) {
+    const amt = checkAmountUsd(parts[1]);
+    if (!amt.ok) return { text: `🛑 ${esc(amt.reason!)}`, href: null };
+  }
   const head = [
     `🛒 <b>$${esc(t.symbol)}</b> · ${esc(chainName(t.chain))}`,
     "",
@@ -652,6 +668,11 @@ async function buyText(userId: number, isDm: boolean, args: string): Promise<{ t
       ? `<b>${esc(fmtUsdFull(usd))}</b> ≈ ${esc(fmtPrism(usd / (t.priceUsd || 1)))} $${esc(t.symbol)} at ${esc(fmtPrice(t.priceUsd))}`
       : `${esc(fmtPrice(t.priceUsd))} per $${esc(t.symbol)} — add an amount, e.g. <code>/buy ${esc(t.symbol)} 100</code>`,
     t.liquidityUsd < MIN_LIQUIDITY_USD ? "⚠️ Thin liquidity — expect slippage." : "",
+    // a money action ALWAYS shows what it would actually buy
+    `<code>${esc(t.address)}</code>`,
+    ...(safe.rivals.length
+      ? [`⚠️ <b>${safe.rivals.length} other token${safe.rivals.length === 1 ? "" : "s"} use $${esc(t.symbol)}</b> — this is the deepest pool. Buy by address if you mean a different one.`]
+      : []),
   ].filter(Boolean);
 
   // unlinked, or in a group: price it and stop — funding needs their positions
@@ -664,7 +685,18 @@ async function buyText(userId: number, isDm: boolean, args: string): Promise<{ t
   }
 
   const pf = await readFullPortfolio(addr);
+  // a size wildly beyond the book is a typo, not an order
+  const sanity = checkAmountUsd(usd, pf.totalUsd);
+  if (!sanity.ok) return { text: `🛑 ${esc(sanity.reason!)}`, href: null };
   const plan = planFunding(pf, usd, t.chain);
+  // check our OWN arithmetic before a human acts on it
+  const problems = auditFunding(plan, pf);
+  if (problems.length) {
+    return {
+      text: [...head, "", "🛑 <b>I won't show a funding plan I can't stand behind.</b>", `<i>${esc(problems[0])}</i>`, "", "Try a smaller size, or /me to see the book."].join("\n"),
+      href,
+    };
+  }
   const fundLines: string[] = [];
   const cardFrom: string[] = [];
   for (const l of plan.fromCash) {

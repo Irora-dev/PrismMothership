@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.37",
-  "note": "Spectrum is its own brand: every basket- and portfolio-shaped card now carries the Spectrum wordmark and its own rainbow instead of the Prism mark. The DM surface got cards too \u2014 your book and your P&L as bentos, a prepared buy showing what funds it, a rebalance showing the deltas \u2014 and the copy behind them was tightened.",
+  "version": "2026.08.03.38",
+  "note": "Money-path defences. Ticker collisions are disclosed rather than silently resolved (four tokens answer to PEPE today), every money action shows the contract address, burn and zero addresses are refused outright, sizes are sanity-checked against the book, and funding plans are audited against invariants before a human sees them. The gate gained an adversarial suite that probes each of these; 92 checks.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
