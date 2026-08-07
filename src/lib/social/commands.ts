@@ -112,6 +112,23 @@ async function liveStats() {
   }
 }
 
+// /ca — the one thing every group asks for. The address renders as <code> so a
+// tap copies it; the pool link doubles as proof it's the real one.
+function caText(): string {
+  return [
+    "🔻 <b>PRISM contract</b> (Ethereum)",
+    "",
+    "<code>0xCf4d29f14Cc585DDd1167F956092852AF844e040</code>",
+    "",
+    "Tap the address to copy. Verify it yourself:",
+    "https://etherscan.io/token/0xCf4d29f14Cc585DDd1167F956092852AF844e040",
+  ].join("\n");
+}
+
+function linksText(): string {
+  return ["🔻 <b>PRISM — official links</b>", "", "https://linktr.ee/prism_lp"].join("\n");
+}
+
 function helpText(): string {
   return [
     "🔻 <b>Spectra · The Prism Bot</b>",
@@ -124,6 +141,8 @@ function helpText(): string {
     "/burn · PRISM burned (today / week / all-time)",
     "/bigburn · how close the next big burn is",
     "/prism · PRISM revenue &amp; burn stats",
+    "/ca · the PRISM contract address",
+    "/links · every official link",
     "",
     "Or just @mention me a question — \"how many baskets are live?\", \"how much PRISM burned this week?\", \"how close to a big burn?\"",
     "",
@@ -610,6 +629,12 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await leaderboardText());
       case "basket":
         return wrap(await basketText(args));
+      case "ca":
+      case "contract":
+        return wrap(caText());
+      case "links":
+      case "socials":
+        return wrap(linksText());
       case "createbasket":
         return wrap(groupFeaturesEnabled() ? await createBasketText(args) : comingSoonText());
       case "draft":

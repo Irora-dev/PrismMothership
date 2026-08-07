@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.24",
-  "note": "Lightrunner joins the App Store as a new ecosystem app (card + external link to playlightrunner.com); a disabled 'Lightrunner Analytics \u2014 Coming soon' entry sits under Ecosystem activity in the nav for its future on-chain analytics page. NavItem gained badge/disabled support.",
+  "version": "2026.08.03.25",
+  "note": "Telegram bot: /ca (copyable contract address + explorer proof link) and /links commands, and the command MENU becomes code \u2014 scripts/telegram-commands.mjs registers the full roster, because Telegram's list is replace-only and one hand edit via BotFather wiped every command.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
