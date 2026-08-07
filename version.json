@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.32",
-  "note": "Every command carries a card now: /token (brand-colored intel), /quote (the swap as a headline), /ca (the address, huge), /links, /lightrunner (the game's real art \u2014 PNG variants: Satori can't decode webp), /help (a tappable-looking menu), /bigburn. Playground: the chat scrolls properly (height-locked column) and auto-follow only engages near the bottom, so scrolling up to reread never gets yanked.",
+  "version": "2026.08.03.33",
+  "note": "Private-DM portfolio surface: /link connects a wallet read-only (bot-minted code claimed on the site \u2014 or paste an address), /me reads your Spectrum positions across every chain, /reweight builds a target and hands you the page to sign. Plus the group suggestion card, and docs/SPECTRUM-INTEGRATION.md \u2014 the explicit bot-to-Spectrum contract (create-page prefill, cross-origin link claim, launch attribution) with the on-chain immutability finding that shapes it.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

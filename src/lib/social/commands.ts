@@ -12,6 +12,7 @@ import { getIndexData, listIndexes } from "@/lib/spectrum/index-data";
 import { fmtUsdFull, fmtEth, fmtPrism } from "@/lib/feed/format";
 import { detectTickers, type TickerTally } from "./group-signal";
 import { observe, recentTickers, hotTickers } from "./group-store";
+import { getLinkedWallet, linkWallet, unlinkWallet, newLinkCode, stashLinkCode, readPortfolio } from "./dm-portfolio";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
 import { validateAddress } from "./token-validate";
@@ -71,6 +72,7 @@ interface TgMessage {
   date?: number; // unix seconds — drop stale/backlogged updates
   from?: { id?: number; first_name?: string; username?: string }; // rate limiting + proposer attribution
   chat: TgChat;
+  reply_to_message?: { text?: string; from?: { is_bot?: boolean } }; // force-reply answers
 }
 interface TgChatMemberUpdate {
   chat: TgChat;
@@ -95,6 +97,8 @@ export interface TgReply {
   buttons?: import("./telegram").TgButtons;
   /** the webhook stores this message's id as the group's living draft card */
   isDraftCard?: boolean;
+  /** Telegram opens the reply box aimed at this message (the paste-a-CA gesture) */
+  forceReplyPlaceholder?: string;
 }
 
 // ── Anti-spam (first layer) ───────────────────────────────────────────────────
@@ -409,23 +413,24 @@ function parseSplit(args: string): SplitLeg[] | null {
   if (sum < 90 || sum > 110) return null;
   return legs;
 }
-async function splitText(args: string): Promise<string> {
+async function splitText(args: string): Promise<{ text: string; createHref: string | null }> {
   const legs = parseSplit(args);
-  if (!legs) return ["Sketch an allocation, e.g. <code>/split 60 STONK 40 PONS</code>", "", `2–${MAX_BASKET_TOKENS} tokens, weights summing to ~100.`].join("\n");
+  if (!legs) return { text: ["Sketch an allocation, e.g. <code>/split 60 STONK 40 PONS</code>", "", `2–${MAX_BASKET_TOKENS} tokens, weights summing to ~100.`].join("\n"), createHref: null };
   const first = await validateTicker(legs[0].symbol);
-  if (!first) return `Couldn't find <b>$${esc(legs[0].symbol)}</b> on Ethereum or Base.`;
+  if (!first) return { text: `Couldn't find <b>$${esc(legs[0].symbol)}</b> on Ethereum or Base.`, createHref: null };
   const rest = await Promise.all(legs.slice(1).map((l) => validateTicker(l.symbol, first.chain)));
   const missing = legs.slice(1).filter((_, i) => !rest[i]);
-  if (missing.length) return `${missing.map((l) => `<b>$${esc(l.symbol)}</b>`).join(", ")} not found on ${esc(chainName(first.chain))} — a basket lives on ONE chain.`;
+  if (missing.length) return { text: `${missing.map((l) => `<b>$${esc(l.symbol)}</b>`).join(", ")} not found on ${esc(chainName(first.chain))} — a basket lives on ONE chain.`, createHref: null };
   const matches = [first, ...(rest as TokenMatch[])];
-  return [
+  const href = createUrl(matches.map((t) => t.address), first.chain);
+  const text = [
     `🧺 <b>The split</b> · ${esc(chainName(first.chain))}`,
     "",
     ...legs.map((l, i) => `· <b>${l.weight}%</b> $${esc(l.symbol)} — ${esc(fmtPrice(matches[i].priceUsd))}${matches[i].change24hPct != null ? ` (${esc(pct(matches[i].change24hPct))} 24h)` : ""}`),
     "",
-    "Make it real — weights, name and signing happen on the create page:",
-    createUrl(matches.map((t) => t.address), first.chain),
+    `<a href="${href}">Make it real — weights, name and signing on the create page →</a>`,
   ].join("\n");
+  return { text, createHref: href };
 }
 
 // ── /league — every registered group basket, ranked ──────────────────────────
@@ -452,6 +457,95 @@ async function leagueText(): Promise<string> {
   ].join("\n");
 }
 
+// ── PRIVATE DM: your portfolio, cross-chain ──────────────────────────────────
+// Read-only by construction. The bot never signs, never custodies, never asks
+// for a key — reweighting produces a target and a link, and the signature
+// happens on the site in the user's own wallet.
+const DM_ONLY = "🔒 That one only works in a private message with me — a wallet in a group chat is a doxx. Tap my name → Send Message.";
+
+async function linkText(userId: number, args: string): Promise<string> {
+  const q = args.trim();
+  if (/^0x[a-fA-F0-9]{40}$/.test(q)) {
+    await linkWallet(userId, q);
+    return [
+      `👛 Linked <code>${esc(q.slice(0, 6))}…${esc(q.slice(-4))}</code>.`,
+      "",
+      "/me for your positions across every chain.",
+      "",
+      "Note: a pasted address isn't proof you own it — it only shows public data back to you. Use /link with no address to connect a wallet properly.",
+    ].join("\n");
+  }
+  const code = newLinkCode();
+  await stashLinkCode(code, userId);
+  return [
+    "👛 <b>Link your wallet</b>",
+    "",
+    `<a href="${siteUrl()}/link?code=${code}">Open the link page →</a> and connect the wallet you already use.`,
+    "",
+    "Read-only: no signature, no approval, nothing granted — it just lets this DM show your positions.",
+    `The code <code>${code}</code> works for 20 minutes. Or paste an address here to skip the connect.`,
+  ].join("\n");
+}
+
+async function meText(userId: number): Promise<{ text: string; card?: string }> {
+  const addr = await getLinkedWallet(userId);
+  if (!addr) return { text: "No wallet linked yet — <code>/link</code> takes about ten seconds." };
+  const pf = await readPortfolio(addr);
+  if (!pf.positions.length) {
+    return {
+      text: [
+        `👛 <code>${esc(addr.slice(0, 6))}…${esc(addr.slice(-4))}</code>`,
+        "",
+        `No Spectrum baskets in this wallet yet (checked all ${pf.checked}).`,
+        "",
+        `Browse them: ${siteUrl()}/baskets`,
+      ].join("\n"),
+    };
+  }
+  const lines = pf.positions
+    .slice(0, 10)
+    .map((p) => `· <b>$${esc(p.symbol)}</b> — ${esc(fmtUsdFull(p.valueUsd))}${p.change24hPct != null ? ` (${esc(pct(p.change24hPct))})` : ""} · ${esc(chainName(p.chain))}`);
+  return {
+    text: [
+      `👛 <b>Your positions</b> · <code>${esc(addr.slice(0, 6))}…${esc(addr.slice(-4))}</code>`,
+      "",
+      ...lines,
+      "",
+      `Total: <b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${new Set(pf.positions.map((p) => p.chain)).size} chain(s)`,
+      "",
+      "Reweight with <code>/reweight 60 X 40 Y</code> — I build the target, you sign it on the site.",
+    ].join("\n"),
+  };
+}
+
+// Baskets are composition-IMMUTABLE on-chain (probed: only setMetadata exists),
+// so "reweighting" means trading into the new shape — and a group basket changes
+// composition by launching a NEW version that the old one points at socially
+// (the factory's own doc: "no successor pointer — versioning by social
+// convention"). Both paths end at the site, signed by the user's own wallet.
+async function reweightText(userId: number, args: string): Promise<{ text: string; createHref: string | null }> {
+  const addr = await getLinkedWallet(userId);
+  if (!addr) return { text: "Link a wallet first — <code>/link</code>.", createHref: null };
+  const legs = parseSplit(args);
+  if (!legs) {
+    const pf = await readPortfolio(addr);
+    const now = pf.positions.slice(0, 6).map((p) => `· <b>$${esc(p.symbol)}</b> — ${pf.totalUsd > 0 ? Math.round((p.valueUsd / pf.totalUsd) * 100) : 0}%`);
+    return {
+      text: [
+        "⚖️ <b>Reweight</b>",
+        "",
+        ...(now.length ? ["Where you are now:", ...now, ""] : []),
+        "Say the target: <code>/reweight 60 STONK 40 PONS</code>",
+        "",
+        "I price it and hand you the page — you sign, never me.",
+      ].join("\n"),
+      createHref: null,
+    };
+  }
+  const s = await splitText(args);
+  return { text: s.text.replace("🧺 <b>The split</b>", "⚖️ <b>Your target</b>"), createHref: s.createHref };
+}
+
 function lightrunnerText(): string {
   return [
     "🌒 <b>Lightrunner</b>",
@@ -462,6 +556,9 @@ function lightrunnerText(): string {
     "League stats land here once the analytics are live. 👀",
   ].join("\n");
 }
+
+// the ➕ Add-a-token prompt: replies to this message are treated as proposals
+export const ADD_PROMPT = "📎 <b>Paste the token</b> — a contract address (0x…) or $TICKER, plus a word on why. I'll validate it and the group votes.";
 
 // ── THE LIVING DRAFT CARD — one photo message per group, edited as taps land ──
 // The bento is the visual: proposed tokens as tiles that GROW with votes.
@@ -550,10 +647,20 @@ export async function handleCallback(cb: TgCallback): Promise<CallbackAction> {
   }
   if (data === "d:launch") {
     if (!groupFeaturesEnabled()) return { toast: "Launching isn't switched on here yet." };
-    const text = await launchDraftText(chat.id);
-    return { toast: "Launch checklist 🚀", reply: { chatId: chat.id, text, parseMode: "HTML", disablePreview: true } };
+    const l = await launchDraftText(chat.id);
+    return { toast: "Launch checklist 🚀", reply: { chatId: chat.id, text: l.text, parseMode: "HTML", disablePreview: true, buttons: createButton(l.createHref) } };
   }
-  if (data === "d:add") return { toast: "Type: /propose $TICKER and why. I validate it and the group votes." };
+  if (data === "d:add") {
+    return {
+      reply: {
+        chatId: chat.id,
+        text: ADD_PROMPT,
+        parseMode: "HTML",
+        disablePreview: true,
+        forceReplyPlaceholder: "0x… or $TICKER, plus why",
+      },
+    };
+  }
   if (data === "d:no") return { toast: "Fair. I'll keep watching quietly." };
   return {};
 }
@@ -576,6 +683,11 @@ function helpText(): string {
     "/quote &lt;eth&gt; · live buy quote",
     "/wallet &lt;0x…&gt; · holdings &amp; claimable fees",
     "/portfolio · Spectrum Portfolio stats",
+    "",
+    "<b>In a private message with me</b>",
+    "/link · connect a wallet (read-only)",
+    "/me · your positions across every chain",
+    "/reweight 60 X 40 Y · a target, then the page to sign it",
     "",
     "<b>Group tools</b>",
     "/ourbasket &lt;ticker&gt; · register the group's basket, then live stats",
@@ -775,20 +887,23 @@ function createUrl(addresses: string[], chain: "ethereum" | "base"): string {
 // enforce ONE chain (baskets are single-chain), cap 2–8, then hand off to the operator
 // create page. Weights + name + signing happen there; the thesis is written post-deploy
 // (owner decision). The bot never signs. Flag-on entry; DARK until GROUP_FEATURES_ENABLED.
-async function createBasketText(args: string): Promise<string> {
+async function createBasketText(args: string): Promise<{ text: string; createHref: string | null }> {
   const tickers = args
     .split(/[\s,]+/)
     .map((t) => t.trim())
     .filter(Boolean)
     .slice(0, 12);
   if (!tickers.length) {
-    return [
-      "🧺 <b>Create a basket</b>",
-      "",
-      "Give me 2–8 tickers (or contract addresses) on one chain and I'll check they're live + liquid, then hand you a page to set weights, name it, and sign it into existence.",
-      "",
-      "Example: <code>/createbasket SYRUP UNI MOG</code>",
-    ].join("\n");
+    return {
+      text: [
+        "🧺 <b>Create a basket</b>",
+        "",
+        "Give me 2–8 tickers (or contract addresses) on one chain and I'll check they're live + liquid, then hand you a page to set weights, name it, and sign it into existence.",
+        "",
+        "Example: <code>/createbasket SYRUP UNI MOG</code>",
+      ].join("\n"),
+      createHref: null,
+    };
   }
 
   const results = await validateTickers(tickers, MIN_LIQUIDITY_USD);
@@ -813,37 +928,38 @@ async function createBasketText(args: string): Promise<string> {
 
   if (usable.length < MIN_BASKET_TOKENS) {
     lines.push("", `Need at least ${MIN_BASKET_TOKENS} tradeable tokens on one chain — try again.`);
-    return lines.join("\n");
+    return { text: lines.join("\n"), createHref: null };
   }
   let note = "";
   if (usable.length > MAX_BASKET_TOKENS) {
     usable = usable.slice(0, MAX_BASKET_TOKENS);
     note = ` (capped at ${MAX_BASKET_TOKENS})`;
   }
+  const href = createUrl(
+    usable.map((r) => r.match!.address),
+    chosen,
+  );
   lines.push(
     "",
-    `<b>${usable.length} tokens</b> on ${chainLabel(chosen)}${note} — set weights, name it &amp; sign it into existence:`,
-    createUrl(
-      usable.map((r) => r.match!.address),
-      chosen,
-    ),
+    `<a href="${href}"><b>${usable.length} tokens</b> on ${chainLabel(chosen)}${note} — set weights, name it &amp; sign on the create page →</a>`,
     "",
     "💰 You earn a creator-fee slice on every trade of your basket. An active one can more than cover the launch cost.",
   );
-  return lines.join("\n");
+  return { text: lines.join("\n"), createHref: href };
 }
 
 // Proactive "make it a basket?" nudge when a cluster of tickers goes hot in a group.
 function suggestionText(hot: TickerTally[]): string {
-  const syms = hot.map((h) => h.symbol);
+  const syms = hot.map((h) => "$" + esc(h.symbol)).join(" · ");
   return [
-    "🧺 <b>Basket idea</b>",
+    `🧺 <b>${syms}</b>`,
     "",
-    `This group keeps mentioning ${syms.map((s) => "$" + esc(s)).join(", ")}. One tap bundles them into a draft — one token, the whole thesis, every trade feeding the PRISM burn.`,
+    "This group's thesis, as one token everyone can hold.",
     "",
-    "💰 Whoever launches it earns the creator-fee slice on every trade, forever.",
+    "💰 Whoever launches it earns a creator-fee slice on every trade, forever.",
   ].join("\n");
 }
+const suggestionCard = (hot: TickerTally[]): string => cardUrl(`idea&syms=${encodeURIComponent(hot.map((h) => h.symbol).slice(0, 8).join(","))}`);
 const suggestionButtons = (): TgButtons => [[{ text: "🧺 Start the draft", data: "d:start" }, { text: "Not now", data: "d:no" }]];
 
 // The group-chatter listener: on every group message (privacy mode OFF), track
@@ -868,7 +984,7 @@ export async function handleGroupMessage(update: TgUpdate): Promise<TgReply | nu
   if (!tickers.length) return null;
   const obs = await observe(msg.chat.id, msg.from?.id ?? 0, tickers, Date.now());
   if (!obs.suggest) return null;
-  return { chatId: msg.chat.id, text: suggestionText(obs.suggest), parseMode: "HTML", disablePreview: true, buttons: suggestionButtons() };
+  return { chatId: msg.chat.id, text: suggestionText(obs.suggest), parseMode: "HTML", disablePreview: true, buttons: suggestionButtons(), photoUrl: suggestionCard(obs.suggest) };
 }
 
 function greetingText(): string {
@@ -989,25 +1105,28 @@ async function clearDraftCmd(chatId: number | string): Promise<string> {
   return "🧺 Draft cleared. Start fresh with <code>/propose $TICKER why</code>.";
 }
 
-async function launchDraftText(chatId: number | string): Promise<string> {
+async function launchDraftText(chatId: number | string): Promise<{ text: string; createHref: string | null }> {
   const d = await getDraft(chatId);
-  if (d.tokens.length < MIN_BASKET_TOKENS) return `The draft needs at least ${MIN_BASKET_TOKENS} tokens. <code>/draft</code> to see it, <code>/propose $X why</code> to add.`;
+  if (d.tokens.length < MIN_BASKET_TOKENS)
+    return { text: `The draft needs at least ${MIN_BASKET_TOKENS} tokens. <code>/draft</code> to see it, <code>/propose $X why</code> to add.`, createHref: null };
   const chain = draftChain(d)!;
   const tokens = d.tokens.slice(0, MAX_BASKET_TOKENS);
-  return [
+  const href = createUrl(
+    tokens.map((t) => t.address),
+    chain,
+  );
+  const text = [
     `🧺 <b>Launch the group basket</b> · ${chainLabel(chain)}`,
     "",
     ...tokens.map((t) => `• <b>$${esc(t.symbol)}</b> · 🔎 <a href="${dexUrl(t.chain, t.address)}">verify</a>`),
     "",
-    "Give each a quick look, then set weights, name it &amp; sign it into existence:",
-    createUrl(
-      tokens.map((t) => t.address),
-      chain,
-    ),
+    `<a href="${href}">Make it real — weights, name and signing on the create page →</a>`,
     "",
     "💰 Whoever launches earns a creator-fee slice on every trade. An active basket can more than cover the launch cost.",
   ].join("\n");
+  return { text, createHref: href };
 }
+const createButton = (href: string | null): TgButtons | undefined => (href ? [[{ text: "🧺 Make it real — open the create page", url: href }]] : undefined);
 
 // Lightweight natural-language intent matching for @-mentions (no LLM): map a
 // free-form question to the right read-only answer. Returns null → caller falls
@@ -1045,6 +1164,17 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
   const text = msg.text.trim();
   if (!text) return null;
 
+  // a reply to the ➕ prompt IS a proposal — no command syntax needed
+  if (msg.reply_to_message?.text?.startsWith("📎 Paste the token") && groupFeaturesEnabled()) {
+    if (rateLimited(msg.from?.id)) return null;
+    const before = (await getDraft(msg.chat.id)).tokens.length;
+    const out = await proposeCmd(msg.chat.id, text.trim(), msg.from?.id ?? 0, senderName(msg));
+    const d = await getDraft(msg.chat.id);
+    await touchChat(msg.chat.id, msg.chat.title);
+    if (d.tokens.length > before) return draftCardReply(msg.chat.id, d);
+    return { chatId: msg.chat.id, text: out, parseMode: "HTML", disablePreview: true, replyTo: msg.message_id };
+  }
+
   const m = text.match(/^\/([a-zA-Z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/);
   const mentioned = new RegExp(`@${BOT_USERNAME}\\b`, "i").test(text);
   if (!m && !mentioned) return null; // not addressed to us — stay quiet
@@ -1054,8 +1184,9 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
   if (typeof msg.date === "number" && Date.now() / 1000 - msg.date > MAX_AGE_S) return null;
   if (rateLimited(msg.from?.id)) return null;
 
-  const wrap = (body: string, photoUrl?: string): TgReply => ({
+  const wrap = (body: string, photoUrl?: string, buttons?: TgButtons): TgReply => ({
     photoUrl,
+    buttons,
     chatId: msg.chat.id,
     text: body,
     parseMode: "HTML",
@@ -1066,6 +1197,7 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
   // slash command
   if (m) {
     const cmd = m[1].toLowerCase();
+    const isDm = msg.chat.type === "private";
     const args = (m[2] || "").trim();
     switch (cmd) {
       case "start":
@@ -1101,6 +1233,26 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       }
       case "wallet":
         return wrap(await walletText(args));
+      case "link": {
+        if (!isDm) return wrap(DM_ONLY);
+        return wrap(await linkText(msg.from?.id ?? 0, args));
+      }
+      case "unlink": {
+        if (!isDm) return wrap(DM_ONLY);
+        await unlinkWallet(msg.from?.id ?? 0);
+        return wrap("👛 Unlinked. Nothing of yours is stored any more.");
+      }
+      case "me":
+      case "myportfolio": {
+        if (!isDm) return wrap(DM_ONLY);
+        const mp = await meText(msg.from?.id ?? 0);
+        return wrap(mp.text, mp.card);
+      }
+      case "reweight": {
+        if (!isDm) return wrap(DM_ONLY);
+        const rw = await reweightText(msg.from?.id ?? 0, args);
+        return wrap(rw.text, undefined, createButton(rw.createHref));
+      }
       case "ourbasket":
       case "mybasket":
         return wrap(await ourBasketText(msg.chat.id, args, msg.chat.title), cardUrl(`ourbasket&chat=${encodeURIComponent(String(msg.chat.id))}`));
@@ -1119,7 +1271,8 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "split": {
         const legs = parseSplit(args);
         const spec = legs ? legs.map((l) => `${l.weight}:${l.symbol}`).join(",") : "";
-        return wrap(await splitText(args), legs ? cardUrl(`split&spec=${encodeURIComponent(spec)}`) : undefined);
+        const s = await splitText(args);
+        return wrap(s.text, legs ? cardUrl(`split&spec=${encodeURIComponent(spec)}`) : undefined, createButton(s.createHref));
       }
       case "league":
         return wrap(await leagueText(), cardUrl("league"));
@@ -1137,7 +1290,11 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "socials":
         return wrap(linksText(), cardUrl("links"));
       case "createbasket":
-        return wrap(groupFeaturesEnabled() ? await createBasketText(args) : comingSoonText());
+        if (!groupFeaturesEnabled()) return wrap(comingSoonText());
+        {
+          const cb = await createBasketText(args);
+          return wrap(cb.text, undefined, createButton(cb.createHref));
+        }
       case "draft": {
         if (!groupFeaturesEnabled()) return wrap(comingSoonText());
         const d = await getDraft(msg.chat.id);
@@ -1158,8 +1315,11 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(groupFeaturesEnabled() ? await voteCmd(msg.chat.id, args, msg.from?.id ?? 0) : comingSoonText());
       case "drop":
         return wrap(groupFeaturesEnabled() ? await dropCmd(msg.chat.id, args) : comingSoonText());
-      case "launch":
-        return wrap(groupFeaturesEnabled() ? await launchDraftText(msg.chat.id) : comingSoonText());
+      case "launch": {
+        if (!groupFeaturesEnabled()) return wrap(comingSoonText());
+        const l = await launchDraftText(msg.chat.id);
+        return wrap(l.text, undefined, createButton(l.createHref));
+      }
       case "cleardraft":
         return wrap(groupFeaturesEnabled() ? await clearDraftCmd(msg.chat.id) : comingSoonText());
       default:

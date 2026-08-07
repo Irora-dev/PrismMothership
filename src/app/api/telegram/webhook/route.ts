@@ -81,6 +81,7 @@ async function deliver(r: TgReply): Promise<void> {
     replyTo: r.replyTo,
     photoUrl: r.photoUrl,
     buttons: r.buttons,
+    forceReplyPlaceholder: r.forceReplyPlaceholder,
   });
   if (r.isDraftCard && sent.messageId) await setDraftCardMsg(r.chatId, sent.messageId);
 }

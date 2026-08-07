@@ -42,9 +42,12 @@ async function sendOne(token: string, chatId: string, text: string, photoUrl?: s
 // Reply to a single chat (the one that messaged the bot) — used by the incoming
 // command webhook. Separate from postTelegram, which fans a broadcast out to the
 // configured channel list.
-/** one row per inner array — Telegram inline keyboard, callback_data ≤64 bytes */
-export type TgButtons = { text: string; data: string }[][];
-const keyboard = (b?: TgButtons) => (b?.length ? { inline_keyboard: b.map((row) => row.map((x) => ({ text: x.text, callback_data: x.data.slice(0, 64) }))) } : undefined);
+/** one row per inner array — callback buttons (data ≤64 bytes) or URL buttons */
+export type TgButtons = { text: string; data?: string; url?: string }[][];
+const keyboard = (b?: TgButtons) =>
+  b?.length
+    ? { inline_keyboard: b.map((row) => row.map((x) => (x.url ? { text: x.text, url: x.url } : { text: x.text, callback_data: (x.data || "").slice(0, 64) }))) }
+    : undefined;
 
 export interface SendResult {
   ok: boolean;
@@ -54,7 +57,7 @@ export interface SendResult {
 export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
-  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string; buttons?: TgButtons } = {},
+  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string; buttons?: TgButtons; forceReplyPlaceholder?: string } = {},
 ): Promise<SendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return { ok: false };
@@ -67,6 +70,9 @@ export async function sendTelegramMessage(
   if (opts.parseMode) body.parse_mode = opts.parseMode;
   const kb = keyboard(opts.buttons);
   if (kb) body.reply_markup = kb;
+  // force-reply: Telegram opens the user's reply box aimed at THIS message —
+  // the paste-a-CA gesture without any command syntax
+  else if (opts.forceReplyPlaceholder) body.reply_markup = { force_reply: true, input_field_placeholder: opts.forceReplyPlaceholder.slice(0, 60), selective: true };
   if (opts.replyTo) {
     body.reply_to_message_id = opts.replyTo;
     body.allow_sending_without_reply = true; // still post if the target message is gone

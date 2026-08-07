@@ -327,7 +327,7 @@ export async function GET(req: NextRequest) {
     body = live ? (
       <div style={{ display: "flex", alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", width: 560 }}>
-          <div style={{ display: "flex", fontSize: 96, fontWeight: 800, color: "#fff", letterSpacing: -3 }}>${live.symbol.slice(0, 12)}</div>
+          <div style={{ display: "flex", fontSize: Math.max(44, Math.min(96, Math.floor(560 / ((live.symbol.length + 1) * 0.62)))), fontWeight: 800, color: "#fff", letterSpacing: -3 }}>${live.symbol.slice(0, 14)}</div>
           <div style={{ display: "flex", fontSize: 52, fontWeight: 800, color: (live.change24hPct ?? 0) >= 0 ? C.green : "#ff5a7a", marginTop: 4 }}>
             {live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(1)}% 24h` : "—"}
           </div>
@@ -433,6 +433,26 @@ export async function GET(req: NextRequest) {
       </div>
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Basket not found</div>
+    );
+  } else if (kind === "idea") {
+    // the chatter suggestion, visualized: the group's hot tickers as equal-weight
+    // bento tiles. Symbols only (no addresses yet) — tokenVisual falls back to a
+    // deterministic hashed hue per symbol, so no network call and no dead render.
+    title = "BASKET IDEA"; accent = C.purple;
+    const syms = (req.nextUrl.searchParams.get("syms") || "").split(",").map((s) => s.trim().slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 8);
+    const items: BentoTile[] = syms.map((s) => ({ symbol: s, address: s, weightPct: 1 }));
+    body = items.length ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 330 }}>
+          <div style={{ display: "flex", fontSize: 30, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>THIS GROUP&apos;S</div>
+          <div style={{ display: "flex", fontSize: 30, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>THESIS, AS ONE</div>
+          <div style={{ display: "flex", fontSize: 62, fontWeight: 800, color: "#fff", marginTop: 14 }}>TOKEN</div>
+          <div style={{ display: "flex", fontSize: 23, color: "#64748b", marginTop: 16 }}>{items.length} assets · tap to start the draft</div>
+        </div>
+        <Bento items={items} w={690} h={370} />
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No tickers yet</div>
     );
   } else if (kind === "draftcard") {
     // the living draft card: proposed tokens as tiles that GROW with votes
