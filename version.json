@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.31",
-  "note": "Dev-only Telegram playground at /dev/telegram (404 in production, same gate as /setup): a faithful group-chat UI driving the REAL bot handlers \u2014 personas, chatter, the buttoned nudge, tap-to-vote on the living bento draft card, launch handoff, and a celebration preview. For feeling the whole creation flow without touching Telegram.",
+  "version": "2026.08.03.32",
+  "note": "Every command carries a card now: /token (brand-colored intel), /quote (the swap as a headline), /ca (the address, huge), /links, /lightrunner (the game's real art \u2014 PNG variants: Satori can't decode webp), /help (a tappable-looking menu), /bigburn. Playground: the chat scrolls properly (height-locked column) and auto-follow only engages near the bottom, so scrolling up to reread never gets yanked.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

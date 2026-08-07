@@ -458,6 +458,111 @@ export async function GET(req: NextRequest) {
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty draft — /propose $TICKER why</div>
     );
+  } else if (kind === "token") {
+    // read-only intel, param-driven (the command validated via DexScreener)
+    const q = req.nextUrl.searchParams;
+    const sym = (q.get("sym") || "?").slice(0, 12).toUpperCase();
+    const chg = q.get("chg") ? Number(q.get("chg")) : null;
+    title = "TOKEN INTEL"; accent = C.cyan;
+    const vis = tokenVisual(sym, (q.get("ca") || "").toLowerCase());
+    body = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 620 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div style={{ display: "flex", background: vis.color, borderRadius: 18, padding: "10px 22px", fontSize: 64, fontWeight: 800, color: "#fff", boxShadow: "inset 0 2px 0 rgba(255,255,255,0.3), inset 0 -5px 12px rgba(0,0,0,0.25)" }}>${sym}</div>
+            {chg != null ? (
+              <div style={{ display: "flex", fontSize: 46, fontWeight: 800, marginLeft: 26, color: chg >= 0 ? C.green : "#ff5a7a" }}>{`${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% 24h`}</div>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", fontSize: 30, color: "#94a3b8", marginTop: 14 }}>{(q.get("name") || "").slice(0, 40)} · {(q.get("chain") || "").slice(0, 16)}</div>
+          <div style={{ display: "flex", fontSize: 22, color: "#64748b", marginTop: 16, fontFamily: "monospace" }}>{(q.get("ca") || "").slice(0, 42)}</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <Stat label="PRICE" value={(q.get("price") || "—").slice(0, 14)} accent={C.cyan} />
+          <div style={{ display: "flex", marginTop: 18 }}>
+            <Stat label="LIQUIDITY" value={(q.get("liq") || "—").slice(0, 12)} accent={C.purple} />
+          </div>
+        </div>
+      </div>
+    );
+  } else if (kind === "quote") {
+    const q = req.nextUrl.searchParams;
+    title = "LIVE QUOTE"; accent = C.green;
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ display: "flex", fontSize: 96, fontWeight: 800, color: "#fff" }}>Ξ{(q.get("in") || "?").slice(0, 8)}</div>
+          <div style={{ display: "flex", fontSize: 72, color: "#475569", margin: "0 34px" }}>→</div>
+          <div style={{ display: "flex", fontSize: 96, fontWeight: 800, color: C.green }}>{(q.get("out") || "?").slice(0, 10)}</div>
+          <div style={{ display: "flex", fontSize: 40, fontWeight: 700, color: "#94a3b8", marginLeft: 20, marginTop: 34 }}>PRISM</div>
+        </div>
+        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 26 }}>1% pool fee streams to holders — including you, after this buy.</div>
+      </div>
+    );
+  } else if (kind === "ca") {
+    title = "PRISM CONTRACT"; accent = C.green;
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", fontSize: 30, letterSpacing: 5, color: "#7c8aa0", fontWeight: 700 }}>ETHEREUM · THE ONLY ADDRESS</div>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 24, background: "rgba(255,255,255,0.04)", border: `1px solid ${C.green}40`, borderRadius: 22, padding: "30px 36px" }}>
+          <div style={{ display: "flex", fontSize: 49, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>0xCf4d29f14Cc585DDd116</div>
+          <div style={{ display: "flex", fontSize: 49, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>7F956092852AF844e040</div>
+        </div>
+        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 22 }}>Tap the message to copy · verify it yourself on Etherscan before you trade.</div>
+      </div>
+    );
+  } else if (kind === "links") {
+    title = "OFFICIAL LINKS"; accent = C.purple;
+    const rows = [
+      ["🌈", "linktr.ee/prism_lp", "every link, one place"],
+      ["𝕏", "x.com/Prism_V4hook", "the PRISM account"],
+      ["✈️", "t.me/PrismLP", "the Telegram group"],
+    ];
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {rows.map(([ic, big, sub], i) => (
+          <div key={big} style={{ display: "flex", alignItems: "center", marginTop: i ? 20 : 0, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 18, padding: "18px 26px" }}>
+            <div style={{ display: "flex", fontSize: 44 }}>{ic}</div>
+            <div style={{ display: "flex", fontSize: 42, fontWeight: 800, color: "#fff", marginLeft: 24 }}>{big}</div>
+            <div style={{ display: "flex", fontSize: 24, color: "#64748b", marginLeft: "auto" }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (kind === "lightrunner") {
+    // the game's real art — PNG variants: Satori's decoder cannot read webp, and
+    // a webp src renders as a silent empty frame
+    title = "LIGHTRUNNER"; accent = "#5C7CFA";
+    const origin = req.nextUrl.origin;
+    body = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 560 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`${origin}/mothership/lightrunner-logo-card.png`} width={480} height={141} alt="" />
+          <div style={{ display: "flex", fontSize: 28, color: "#cbd5e1", marginTop: 24, lineHeight: 1.5 }}>An onchain roguelike bullet hell built on Prism. Weekly leagues — run the dark, score high, win from the pot.</div>
+          <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: "#5C7CFA", marginTop: 20 }}>playlightrunner.com</div>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`${origin}/mothership/lightrunner-bg-card.png`} width={440} height={246} alt="" style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,0.14)" }} />
+      </div>
+    );
+  } else if (kind === "help") {
+    title = "THE PRISM BOT"; accent = C.green;
+    const cmds: [string, string][] = [
+      ["/price", C.cyan], ["/burn", C.orange], ["/baskets", C.purple], ["/token", C.cyan],
+      ["/quote", C.green], ["/split", C.purple], ["/ourbasket", C.purple], ["/watchlist", C.cyan],
+      ["/league", C.green], ["/portfolio", C.orange], ["/lightrunner", "#5C7CFA"], ["/ca", C.green],
+    ];
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", fontSize: 32, color: "#94a3b8" }}>Your live line to the Prism ecosystem — tap a command or just ask.</div>
+        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 26 }}>
+          {cmds.map(([c, col]) => (
+            <div key={c} style={{ display: "flex", fontSize: 30, fontWeight: 700, color: col, border: `2px solid ${col}44`, background: `${col}12`, borderRadius: 14, padding: "10px 22px", marginRight: 14, marginBottom: 14 }}>{c}</div>
+          ))}
+        </div>
+      </div>
+    );
   } else if (kind === "portfolio") {
     // Spectrum Portfolio berth card — honest empty until the batcher contracts
     // are on-chain (post-ceremony); lights up via the same live stats the

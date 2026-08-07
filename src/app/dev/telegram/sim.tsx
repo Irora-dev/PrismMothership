@@ -46,7 +46,7 @@ const CHATTER = [
   { p: 1, t: "$MOG $PEPE lets go" },
 ];
 
-const QUICK = ["/help", "/price", "/burn", "/token PEPE", "/split 60 PEPE 40 MOG", "/ourbasket STONKMEME", "/watchlist", "/league", "/portfolio"];
+const QUICK = ["/help", "/price", "/burn", "/token PEPE", "/quote 0.5", "/split 60 PEPE 40 MOG", "/ourbasket STONKMEME", "/watchlist", "/league", "/ca", "/links", "/lightrunner"];
 
 // bot photo URLs come back absolute (the configured site URL) — pull them local
 const toLocal = (u?: string) => {
@@ -87,8 +87,13 @@ export function TelegramSim() {
     return id;
   }, []);
 
+  // auto-follow only when already near the bottom — scrolling up to reread the
+  // flow must never be yanked back down by a new message
   useEffect(() => {
-    scroller.current?.scrollTo({ top: 1e9, behavior: "smooth" });
+    const el = scroller.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 320;
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [msgs]);
 
   const showToast = (t?: string) => {
@@ -208,7 +213,7 @@ export function TelegramSim() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0e1621", color: "#f5f5f5", fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100vh", overflow: "hidden", background: "#0e1621", color: "#f5f5f5", fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif", display: "flex", flexDirection: "column" }}>
       {/* header */}
       <div style={{ background: "#17212b", borderBottom: "1px solid #101921", padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 5 }}>
         <div style={{ width: 40, height: 40, borderRadius: 20, background: "linear-gradient(135deg,#9D00FF,#00F0FF)", display: "grid", placeItems: "center", fontWeight: 800 }}>DL</div>
@@ -223,7 +228,7 @@ export function TelegramSim() {
       </div>
 
       {/* transcript */}
-      <div ref={scroller} style={{ flex: 1, overflowY: "auto", padding: "18px 0 120px" }}>
+      <div ref={scroller} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "18px 0 24px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
           {msgs.length === 0 && (
             <div style={{ textAlign: "center", color: "#6c7883", fontSize: 14, marginTop: 60, lineHeight: 1.8 }}>
@@ -275,7 +280,7 @@ export function TelegramSim() {
       )}
 
       {/* composer */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#17212b", borderTop: "1px solid #101921", padding: "10px 16px 14px" }}>
+      <div style={{ background: "#17212b", borderTop: "1px solid #101921", padding: "10px 16px 14px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
           <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
             {PERSONAS.map((p, i) => (

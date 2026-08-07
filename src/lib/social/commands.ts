@@ -204,14 +204,14 @@ async function earnedText(): Promise<string> {
   }
 }
 
-async function quoteText(args: string): Promise<string> {
+async function quoteText(args: string): Promise<{ text: string; card?: string }> {
   const amt = parseFloat(args);
-  if (!Number.isFinite(amt) || amt <= 0 || amt > 10_000) return "Usage: <code>/quote 0.5</code> — ETH amount to price.";
+  if (!Number.isFinite(amt) || amt <= 0 || amt > 10_000) return { text: "Usage: <code>/quote 0.5</code> — ETH amount to price." };
   try {
     const r = await fetch(`${siteUrl()}/api/trade/quote?dir=buy&in=${encodeURIComponent(String(amt))}`, { cache: "no-store" });
     if (!r.ok) throw new Error("quote failed");
     const d = (await r.json()) as { amountOut: string; ethUsd: number };
-    return [
+    const text = [
       "🔁 <b>Live quote</b>",
       "",
       `Ξ${esc(String(amt))} → <b>${esc(fmtPrism(Number(d.amountOut)))} PRISM</b>`,
@@ -220,8 +220,9 @@ async function quoteText(args: string): Promise<string> {
       "1% pool fee streams to holders — including you, after this buy.",
       `${siteUrl()}/trade`,
     ].filter(Boolean).join("\n");
+    return { text, card: cardUrl(`quote&in=${encodeURIComponent(String(amt))}&out=${encodeURIComponent(fmtPrism(Number(d.amountOut)))}`) };
   } catch {
-    return "Couldn't fetch a quote just now. Try again in a minute. 🔧";
+    return { text: "Couldn't fetch a quote just now. Try again in a minute. 🔧" };
   }
 }
 
@@ -331,13 +332,16 @@ async function ourBasketText(chatId: number | string, args: string, chatTitle?: 
 }
 
 // ── /token — read-only intel for any ticker or pasted CA ─────────────────────
-async function tokenText(args: string): Promise<string> {
+async function tokenText(args: string): Promise<{ text: string; card?: string }> {
   const q = args.trim();
-  if (!q) return "Usage: <code>/token TICKER</code> or <code>/token 0x…</code>";
+  if (!q) return { text: "Usage: <code>/token TICKER</code> or <code>/token 0x…</code>" };
   const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
-  if (!t) return `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`;
+  if (!t) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.` };
+  const card = cardUrl(
+    `token&sym=${encodeURIComponent(t.symbol)}&name=${encodeURIComponent(t.name.slice(0, 40))}&chain=${encodeURIComponent(chainName(t.chain))}&ca=${t.address}&price=${encodeURIComponent(fmtPrice(t.priceUsd))}&liq=${encodeURIComponent(fmtUsdFull(t.liquidityUsd))}${t.change24hPct != null ? `&chg=${t.change24hPct.toFixed(2)}` : ""}`,
+  );
   const liqWarn = t.liquidityUsd < MIN_LIQUIDITY_USD ? " ⚠️ thin" : "";
-  return [
+  const text = [
     `🔎 <b>$${esc(t.symbol)}</b> · ${esc(t.name)} · ${esc(chainName(t.chain))}`,
     "",
     `· Price: <b>${esc(fmtPrice(t.priceUsd))}</b>${t.change24hPct != null ? ` (${esc(pct(t.change24hPct))} 24h)` : ""}`,
@@ -347,6 +351,7 @@ async function tokenText(args: string): Promise<string> {
     "",
     `🔬 <a href="${dexUrl(t.chain, t.address)}">chart &amp; pools</a> · add it to the group draft: <code>/propose $${esc(t.symbol)} why</code>`,
   ].filter(Boolean).join("\n");
+  return { text, card };
 }
 
 // ── /watch · /unwatch · /watchlist — the group's shared radar ────────────────
@@ -856,7 +861,8 @@ export async function handleGroupMessage(update: TgUpdate): Promise<TgReply | nu
   // an address-only message replies, so ordinary chatter is never interrupted.
   const bare = msg.text.trim();
   if (/^0x[a-fA-F0-9]{40}$/.test(bare)) {
-    return { chatId: msg.chat.id, text: await tokenText(bare), parseMode: "HTML", disablePreview: true, replyTo: msg.message_id };
+    const t = await tokenText(bare);
+    return { chatId: msg.chat.id, text: t.text, parseMode: "HTML", disablePreview: true, replyTo: msg.message_id, photoUrl: t.card };
   }
   const tickers = detectTickers(msg.text);
   if (!tickers.length) return null;
@@ -1064,11 +1070,11 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
     switch (cmd) {
       case "start":
       case "help":
-        return wrap(helpText());
+        return wrap(helpText(), cardUrl("help"));
       case "burn":
         return wrap(await burnText(), cardUrl("burn"));
       case "bigburn":
-        return wrap(await bigBurnText());
+        return wrap(await bigBurnText(), cardUrl("burn"));
       case "prism":
         return wrap(await prismText(), cardUrl("prism"));
       case "baskets":
@@ -1089,16 +1095,20 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "earned":
       case "apy":
         return wrap(await earnedText(), cardUrl("earned"));
-      case "quote":
-        return wrap(await quoteText(args));
+      case "quote": {
+        const t = await quoteText(args);
+        return wrap(t.text, t.card);
+      }
       case "wallet":
         return wrap(await walletText(args));
       case "ourbasket":
       case "mybasket":
         return wrap(await ourBasketText(msg.chat.id, args, msg.chat.title), cardUrl(`ourbasket&chat=${encodeURIComponent(String(msg.chat.id))}`));
       case "token":
-      case "ti":
-        return wrap(await tokenText(args));
+      case "ti": {
+        const t = await tokenText(args);
+        return wrap(t.text, t.card);
+      }
       case "watch":
         return wrap(await watchText(msg.chat.id, args, msg.from?.id ?? 0, msg.chat.title));
       case "unwatch":
@@ -1119,13 +1129,13 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await portfolioText(), cardUrl("portfolio"));
       case "lightrunner":
       case "game":
-        return wrap(lightrunnerText());
+        return wrap(lightrunnerText(), cardUrl("lightrunner"));
       case "ca":
       case "contract":
-        return wrap(caText());
+        return wrap(caText(), cardUrl("ca"));
       case "links":
       case "socials":
-        return wrap(linksText());
+        return wrap(linksText(), cardUrl("links"));
       case "createbasket":
         return wrap(groupFeaturesEnabled() ? await createBasketText(args) : comingSoonText());
       case "draft": {
