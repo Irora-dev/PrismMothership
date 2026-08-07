@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.25",
-  "note": "Telegram bot: /ca (copyable contract address + explorer proof link) and /links commands, and the command MENU becomes code \u2014 scripts/telegram-commands.mjs registers the full roster, because Telegram's list is replace-only and one hand edit via BotFather wiped every command.",
+  "version": "2026.08.03.26",
+  "note": "The bot becomes the group's live terminal: /price, /supply (burn progress bar), /earned (lifetime fees per whole PRISM), /quote <eth>, /wallet <0x\u2026> (holdings + claimable), /lightrunner \u2014 plus a scheduled daily digest post (18:00 UTC, dormant unless SOCIAL_ENABLED). Menu roster updated to 15 commands.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

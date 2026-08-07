@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBaseProvider, getProvider } from "@/lib/chain/live";
-import { broadcast } from "@/lib/social/broadcast";
+import { broadcast, dailyDigestText } from "@/lib/social/broadcast";
+import { postTelegram } from "@/lib/social/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,13 @@ export async function GET(req: NextRequest) {
   }
   const dryRun = req.nextUrl.searchParams.get("dry") === "1";
   try {
+    // digest=1 → the once-a-day summary post instead of the event pass
+    if (req.nextUrl.searchParams.get("digest") === "1") {
+      const text = await dailyDigestText(getProvider(), getBaseProvider());
+      if (!text) return NextResponse.json({ digest: false, reason: "no data" });
+      if (!dryRun && (process.env.SOCIAL_ENABLED === "1" || process.env.SOCIAL_ENABLED === "true")) await postTelegram(text);
+      return NextResponse.json({ digest: true, dryRun, text });
+    }
     const result = await broadcast(getProvider(), getBaseProvider(), { dryRun });
     return NextResponse.json(result);
   } catch (e) {

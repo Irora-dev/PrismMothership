@@ -129,6 +129,119 @@ function linksText(): string {
   return ["🔻 <b>PRISM — official links</b>", "", "https://linktr.ee/prism_lp"].join("\n");
 }
 
+async function priceText(): Promise<string> {
+  const s = await liveStats();
+  if (!s) return "Couldn't reach the chain just now. Give it a sec and try again. 🔧";
+  const mcap = (s.prismUsd ?? 0) > 0 ? (s.prismUsd ?? 0) * s.supply : 0;
+  return [
+    "💠 <b>PRISM price</b>",
+    "",
+    `· Price: <b>${esc(fmtUsdFull(s.prismUsd ?? 0))}</b>`,
+    mcap ? `· Market cap: ${esc(fmtUsdFull(mcap))} (${esc(fmtPrism(s.supply))} circulating)` : "",
+    `· Fees to holders, 24h: ${esc(fmtUsdFull(s.feesToHolders24h * s.ethUsd))}`,
+    `· Burned forever: ${esc(fmtPrism(s.totalBurned))}`,
+    "",
+    `${siteUrl()}/trade`,
+  ].filter(Boolean).join("\n");
+}
+
+async function supplyText(): Promise<string> {
+  const s = await liveStats();
+  if (!s) return "Couldn't reach the chain just now. Give it a sec and try again. 🔧";
+  const pct = s.cap > 0 ? (s.totalBurned / s.cap) * 100 : 0;
+  const filled = Math.round(Math.min(100, pct) / 5);
+  const bar = "█".repeat(filled) + "░".repeat(20 - filled);
+  return [
+    "🔥 <b>PRISM supply</b>",
+    "",
+    `· Cap: ${esc(fmtPrism(s.cap))} — fixed, minted once`,
+    `· Burned forever: <b>${esc(fmtPrism(s.totalBurned))}</b> (${pct.toFixed(2)}%)`,
+    `· Circulating: ${esc(fmtPrism(s.supply))}`,
+    "",
+    `<code>${bar}</code>`,
+    "Supply only ever shrinks.",
+    `${siteUrl()}/burn`,
+  ].join("\n");
+}
+
+// lifetime fees accrued per whole PRISM held since day one — the honest flex
+async function earnedText(): Promise<string> {
+  try {
+    const r = await fetch(`${siteUrl()}/api/prism/overview`, { cache: "no-store" });
+    const d = (await r.json()) as { perPrism?: { lifetimeETH: string; lifetimePRISM: string } };
+    const s = await liveStats();
+    if (!d.perPrism || !s) throw new Error("no data");
+    const eth = Number(d.perPrism.lifetimeETH) / 1e18;
+    const prism = Number(d.perPrism.lifetimePRISM) / 1e18;
+    const usd = eth * s.ethUsd + prism * (s.prismUsd || 0);
+    return [
+      "💎 <b>Earned per Prism</b>",
+      "",
+      `One whole PRISM held since day one has accrued <b>${esc(fmtUsdFull(usd))}</b> in fees`,
+      `(Ξ${esc(fmtEth(eth))} + ${esc(fmtPrism(prism))} PRISM).`,
+      "",
+      "Varies with trading, can be zero — not a promise.",
+      `${siteUrl()}/claim`,
+    ].join("\n");
+  } catch {
+    return "Couldn't read the accumulator just now. Try again in a minute. 🔧";
+  }
+}
+
+async function quoteText(args: string): Promise<string> {
+  const amt = parseFloat(args);
+  if (!Number.isFinite(amt) || amt <= 0 || amt > 10_000) return "Usage: <code>/quote 0.5</code> — ETH amount to price.";
+  try {
+    const r = await fetch(`${siteUrl()}/api/trade/quote?dir=buy&in=${encodeURIComponent(String(amt))}`, { cache: "no-store" });
+    if (!r.ok) throw new Error("quote failed");
+    const d = (await r.json()) as { amountOut: string; ethUsd: number };
+    return [
+      "🔁 <b>Live quote</b>",
+      "",
+      `Ξ${esc(String(amt))} → <b>${esc(fmtPrism(Number(d.amountOut)))} PRISM</b>`,
+      d.ethUsd ? `(${esc(fmtUsdFull(amt * d.ethUsd))} in)` : "",
+      "",
+      "1% pool fee streams to holders — including you, after this buy.",
+      `${siteUrl()}/trade`,
+    ].filter(Boolean).join("\n");
+  } catch {
+    return "Couldn't fetch a quote just now. Try again in a minute. 🔧";
+  }
+}
+
+async function walletText(args: string): Promise<string> {
+  const addr = (args || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return "Usage: <code>/wallet 0x…</code> — a full Ethereum address.";
+  try {
+    const r = await fetch(`${siteUrl()}/api/prism/wallet/${addr}`, { cache: "no-store" });
+    if (!r.ok) throw new Error("wallet failed");
+    const d = (await r.json()) as { balance?: number; nfts?: number; pendingETH?: number; pendingPRISM?: number };
+    const s = await liveStats();
+    const pendUsd = s ? (d.pendingETH ?? 0) * s.ethUsd + (d.pendingPRISM ?? 0) * (s.prismUsd || 0) : 0;
+    return [
+      "👛 <b>Wallet</b> <code>" + esc(addr.slice(0, 6) + "…" + addr.slice(-4)) + "</code>",
+      "",
+      `· PRISM: <b>${esc(fmtPrism(d.balance ?? 0))}</b> · fee-share NFTs: ${d.nfts ?? 0}`,
+      `· Claimable: Ξ${esc(fmtEth(d.pendingETH ?? 0))} + ${esc(fmtPrism(d.pendingPRISM ?? 0))} PRISM${pendUsd ? ` (≈${esc(fmtUsdFull(pendUsd))})` : ""}`,
+      "",
+      `${siteUrl()}/claim`,
+    ].join("\n");
+  } catch {
+    return "Couldn't read that wallet just now. Try again in a minute. 🔧";
+  }
+}
+
+function lightrunnerText(): string {
+  return [
+    "🌒 <b>Lightrunner</b>",
+    "",
+    "An onchain roguelike bullet hell built on Prism. Weekly leagues — run the dark, score high, win from the league pot.",
+    "",
+    "https://playlightrunner.com",
+    "League stats land here once the analytics are live. 👀",
+  ].join("\n");
+}
+
 function helpText(): string {
   return [
     "🔻 <b>Spectra · The Prism Bot</b>",
@@ -141,6 +254,12 @@ function helpText(): string {
     "/burn · PRISM burned (today / week / all-time)",
     "/bigburn · how close the next big burn is",
     "/prism · PRISM revenue &amp; burn stats",
+    "/price · PRISM price &amp; market cap",
+    "/supply · cap, burned, burn progress",
+    "/earned · lifetime fees per whole PRISM",
+    "/quote &lt;eth&gt; · live buy quote",
+    "/wallet &lt;0x…&gt; · holdings &amp; claimable fees",
+    "/lightrunner · the onchain roguelike",
     "/ca · the PRISM contract address",
     "/links · every official link",
     "",
@@ -629,6 +748,20 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await leaderboardText());
       case "basket":
         return wrap(await basketText(args));
+      case "price":
+        return wrap(await priceText());
+      case "supply":
+        return wrap(await supplyText());
+      case "earned":
+      case "apy":
+        return wrap(await earnedText());
+      case "quote":
+        return wrap(await quoteText(args));
+      case "wallet":
+        return wrap(await walletText(args));
+      case "lightrunner":
+      case "game":
+        return wrap(lightrunnerText());
       case "ca":
       case "contract":
         return wrap(caText());

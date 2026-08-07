@@ -151,3 +151,27 @@ export async function broadcast(
   await saveState({ v: 1, sinceTs: maxTs, postedIds });
   return { ...base0, candidates, posted };
 }
+
+// ── Daily digest — one evening summary post (netlify/functions/daily-digest.mts) ──
+export async function dailyDigestText(eth: ReturnType<typeof Object> | null, base: ReturnType<typeof Object> | null): Promise<string | null> {
+  try {
+    const { fetchLiveStats } = await import("@/lib/chain/live");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = await fetchLiveStats(eth as any, base as any);
+    if (!s) return null;
+    const site = (process.env.URL || "https://prismbeat.netlify.app").replace(/\/$/, "");
+    const usd = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+    return [
+      "🔻 <b>PRISM daily</b>",
+      "",
+      `· Fees to holders (24h): <b>${usd(s.feesToHolders24h * s.ethUsd)}</b>`,
+      `· PRISM burned (24h): ${s.prismBurnedToday.toFixed(4)} — ${s.totalBurned.toFixed(2)} all-time of 5,000`,
+      `· Live baskets: ${s.indexCount}`,
+      "",
+      "Figures track third-party trading; they vary and can be zero.",
+      site,
+    ].join("\n");
+  } catch {
+    return null;
+  }
+}
