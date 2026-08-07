@@ -15,6 +15,7 @@ import { observe, recentTickers, hotTickers } from "./group-store";
 import {
   getLinkedWallet, linkWallet, unlinkWallet, newLinkCode, stashLinkCode, readPortfolio, readFullPortfolio,
   getSnapshot, putSnapshot, snapshotOf, getAlertState, putAlertState, DEFAULT_PREFS,
+  planFunding, portfolioBatcherLive,
 } from "./dm-portfolio";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
@@ -546,8 +547,36 @@ async function reweightText(userId: number, args: string): Promise<{ text: strin
       createHref: null,
     };
   }
+  // express the target as CHANGES against what they actually hold — the shape
+  // the batcher will execute, and the shape a human can sanity-check
+  const pf = await readFullPortfolio(addr);
+  const total = pf.totalUsd;
+  const bySym = new Map(pf.positions.map((p) => [p.symbol.toUpperCase(), p]));
+  const targetSyms = new Set(legs.map((l) => l.symbol.toUpperCase()));
+  const rows: string[] = [];
+  for (const l of legs) {
+    const held = bySym.get(l.symbol.toUpperCase());
+    const want = (l.weight / 100) * total;
+    const have = held?.valueUsd ?? 0;
+    const d = want - have;
+    rows.push(
+      `· <b>$${esc(l.symbol)}</b> → ${l.weight}% · ${d >= 0 ? "buy" : "sell"} ${esc(fmtUsdFull(Math.abs(d)))}${have > 0 ? ` (have ${esc(fmtUsdFull(have))})` : " (new)"}`,
+    );
+  }
+  for (const p of pf.positions) if (!targetSyms.has(p.symbol.toUpperCase()) && p.valueUsd >= 1) rows.push(`· <b>$${esc(p.symbol)}</b> → 0% · sell ${esc(fmtUsdFull(p.valueUsd))}`);
   const s = await splitText(args);
-  return { text: s.text.replace("🧺 <b>The split</b>", "⚖️ <b>Your target</b>"), createHref: s.createHref };
+  return {
+    text: [
+      `⚖️ <b>Your target</b> · book ${esc(fmtUsdFull(total))}`,
+      "",
+      ...rows.slice(0, 10),
+      "",
+      portfolioBatcherLive()
+        ? "Spectrum Portfolio can execute this as one batched transaction — you sign once."
+        : "Until the Portfolio batcher is on-chain these are separate swaps you sign yourself.",
+    ].join("\n"),
+    createHref: s.createHref,
+  };
 }
 
 // /pnl — measured from the snapshot taken when the wallet was linked. Honest
@@ -594,7 +623,12 @@ async function pnlText(userId: number): Promise<string> {
 
 // /buy <ca|ticker> <usd> — price it, then hand over the venue. The bot never
 // signs; this is a prepared order, not an executed one.
-async function buyText(args: string): Promise<{ text: string; href: string | null }> {
+// A buy is a PORTFOLIO operation: it comes from somewhere. When the wallet is
+// linked we answer that first — funded from cash, or by trimming what they hold
+// — and show the shape it leaves behind. That plan is exactly what the Spectrum
+// Portfolio batcher will execute in ONE transaction once it is on-chain; until
+// then the legs are signed individually on the venue, and we say so.
+async function buyText(userId: number, isDm: boolean, args: string): Promise<{ text: string; href: string | null }> {
   const parts = args.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return { text: "Usage: <code>/buy PEPE 100</code> or <code>/buy 0x… 100</code> — the amount is in USD.", href: null };
   const q = parts[0];
@@ -602,21 +636,43 @@ async function buyText(args: string): Promise<{ text: string; href: string | nul
   const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
   if (!t) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`, href: null };
   const href = `https://matcha.xyz/tokens/${t.chain}/${t.address}`;
-  const amountLine =
-    Number.isFinite(usd) && usd > 0
+  const sized = Number.isFinite(usd) && usd > 0;
+  const head = [
+    `🛒 <b>$${esc(t.symbol)}</b> · ${esc(chainName(t.chain))}`,
+    "",
+    sized
       ? `<b>${esc(fmtUsdFull(usd))}</b> ≈ ${esc(fmtPrism(usd / (t.priceUsd || 1)))} $${esc(t.symbol)} at ${esc(fmtPrice(t.priceUsd))}`
-      : `${esc(fmtPrice(t.priceUsd))} per $${esc(t.symbol)} — add an amount for the size, e.g. <code>/buy ${esc(t.symbol)} 100</code>`;
-  return {
-    text: [
-      `🛒 <b>$${esc(t.symbol)}</b> · ${esc(chainName(t.chain))}`,
-      "",
-      amountLine,
-      t.liquidityUsd < MIN_LIQUIDITY_USD ? "⚠️ Thin liquidity — expect slippage." : "",
-      "",
-      "You sign it in your own wallet — I never do.",
-    ].filter(Boolean).join("\n"),
-    href,
-  };
+      : `${esc(fmtPrice(t.priceUsd))} per $${esc(t.symbol)} — add an amount, e.g. <code>/buy ${esc(t.symbol)} 100</code>`,
+    t.liquidityUsd < MIN_LIQUIDITY_USD ? "⚠️ Thin liquidity — expect slippage." : "",
+  ].filter(Boolean);
+
+  // unlinked, or in a group: price it and stop — funding needs their positions
+  const addr = isDm ? await getLinkedWallet(userId) : null;
+  if (!addr || !sized) {
+    return {
+      text: [...head, "", isDm && !addr ? "Link a wallet (<code>/link</code>) and I'll show what funds it." : "You sign it in your own wallet — I never do."].join("\n"),
+      href,
+    };
+  }
+
+  const pf = await readFullPortfolio(addr);
+  const plan = planFunding(pf, usd, t.chain);
+  const lines: string[] = [...head, "", "<b>Funded by</b>"];
+  for (const l of plan.fromCash) lines.push(`· ${esc(fmtUsdFull(l.takeUsd))} from your <b>$${esc(l.symbol)}</b> cash${l.chain !== t.chain ? ` (on ${esc(chainName(l.chain))} — bridge first)` : ""}`);
+  for (const l of plan.fromTrim)
+    lines.push(`· trim <b>$${esc(l.symbol)}</b> by ${esc(fmtUsdFull(l.takeUsd))} (${Math.round((l.takeUsd / l.ofPositionUsd) * 100)}% of that position)${l.chain !== t.chain ? ` — on ${esc(chainName(l.chain))}` : ""}`);
+  if (!plan.fromCash.length && !plan.fromTrim.length) lines.push("· nothing in this wallet to fund it with yet");
+  if (plan.shortfallUsd > 0.01) lines.push(`· ⚠️ ${esc(fmtUsdFull(plan.shortfallUsd))} short — send funds or buy smaller`);
+
+  const after = pf.totalUsd > 0 ? (usd / pf.totalUsd) * 100 : 0;
+  lines.push("", `After this, $${esc(t.symbol)} is about <b>${after.toFixed(0)}%</b> of your ${esc(fmtUsdFull(pf.totalUsd))} book.`);
+  lines.push(
+    "",
+    portfolioBatcherLive()
+      ? "Spectrum Portfolio can execute this as one batched transaction — you sign once, I never do."
+      : "Until Spectrum Portfolio's batcher is on-chain these are separate swaps you sign yourself — I never do.",
+  );
+  return { text: lines.join("\n"), href };
 }
 const buyButton = (href: string | null, sym?: string): TgButtons | undefined => (href ? [[{ text: `🛒 Open the swap${sym ? ` — $${sym}` : ""}`, url: href }]] : undefined);
 
@@ -1366,7 +1422,7 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await pnlText(msg.from?.id ?? 0));
       }
       case "buy": {
-        const b2 = await buyText(args);
+        const b2 = await buyText(msg.from?.id ?? 0, isDm, args);
         return wrap(b2.text, undefined, buyButton(b2.href));
       }
       case "alerts": {

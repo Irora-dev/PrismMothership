@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.35",
-  "note": "Portfolio alerts, /pnl and /buy. Alerts cover the WHOLE wallet (every priceable ERC-20 on Ethereum and Base, not just baskets) and are built around restraint: a move must clear both a percentage and a dollar floor, at most a few a day, never twice about one asset within 12h, always ending in something actionable, /alerts off honoured immediately. /pnl measures from the moment you linked and says so. /buy prices an order and opens the venue \u2014 the bot never signs.",
+  "version": "2026.08.03.36",
+  "note": "Buying and reweighting are portfolio operations, not isolated swaps: /buy shows what funds it (cash first, then a bounded trim of what you hold), flags cross-chain legs and shortfalls, and states the share it leaves; /reweight expresses a target as buy/sell deltas against your real book including exits to zero. Both name the Spectrum Portfolio batcher as the one-transaction path and switch to it automatically once PORTFOLIO_BATCHER_ADDRESS is set.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

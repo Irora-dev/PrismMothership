@@ -367,3 +367,68 @@ export async function linkedUsers(): Promise<(number | string)[]> {
     return [];
   }
 }
+
+// ── Funding: every buy comes from somewhere ──────────────────────────────────
+// A buy is a PORTFOLIO operation, not an isolated swap. Before handing anyone a
+// venue we answer the real question — what funds this? Cash they already hold,
+// or trimming something they own. The same shape is what the Spectrum Portfolio
+// batcher will execute in one transaction once it is on-chain; until then the
+// bot states the plan and the legs are signed on the site.
+const CASH_SYMBOLS = new Set(["USDC", "USDT", "DAI", "USDS", "FRAX", "LUSD", "USDE", "PYUSD", "WETH", "ETH"]);
+const STABLE_ONLY = new Set(["USDC", "USDT", "DAI", "USDS", "FRAX", "LUSD", "USDE", "PYUSD"]);
+
+export interface FundingLeg {
+  symbol: string;
+  address: string;
+  chain: string;
+  takeUsd: number;
+  ofPositionUsd: number;
+}
+export interface FundingPlan {
+  needUsd: number;
+  cashUsd: number; // stablecoins + ETH the wallet already holds
+  fromCash: FundingLeg[];
+  fromTrim: FundingLeg[]; // proportional trim across the rest, largest first
+  shortfallUsd: number; // what the portfolio cannot cover
+  sameChain: boolean; // whether every leg sits on the buy's chain
+}
+
+/** How would this wallet pay for `needUsd` of something, using what it holds? */
+export function planFunding(pf: PortfolioView, needUsd: number, targetChain?: string): FundingPlan {
+  const cash = pf.positions.filter((p) => CASH_SYMBOLS.has(p.symbol.toUpperCase()));
+  const rest = pf.positions.filter((p) => !CASH_SYMBOLS.has(p.symbol.toUpperCase())).sort((a, b) => b.valueUsd - a.valueUsd);
+  const cashUsd = cash.reduce((s, p) => s + p.valueUsd, 0);
+
+  const fromCash: FundingLeg[] = [];
+  let remaining = needUsd;
+  // stables first, then ETH — spending the least opinionated asset first
+  for (const p of [...cash].sort((a, b) => Number(STABLE_ONLY.has(b.symbol.toUpperCase())) - Number(STABLE_ONLY.has(a.symbol.toUpperCase())) || b.valueUsd - a.valueUsd)) {
+    if (remaining <= 0.01) break;
+    const take = Math.min(p.valueUsd, remaining);
+    fromCash.push({ symbol: p.symbol, address: p.address, chain: p.chain, takeUsd: take, ofPositionUsd: p.valueUsd });
+    remaining -= take;
+  }
+
+  // still short → trim the biggest holdings, proportionally, largest first
+  const fromTrim: FundingLeg[] = [];
+  for (const p of rest) {
+    if (remaining <= 0.01) break;
+    const take = Math.min(p.valueUsd * 0.5, remaining); // never more than half a position without being asked
+    if (take < 1) continue;
+    fromTrim.push({ symbol: p.symbol, address: p.address, chain: p.chain, takeUsd: take, ofPositionUsd: p.valueUsd });
+    remaining -= take;
+  }
+
+  const legs = [...fromCash, ...fromTrim];
+  return {
+    needUsd,
+    cashUsd,
+    fromCash,
+    fromTrim,
+    shortfallUsd: Math.max(0, remaining),
+    sameChain: !targetChain || legs.every((l) => l.chain === targetChain),
+  };
+}
+
+/** the batcher that executes a whole plan in one transaction — not yet on-chain */
+export const portfolioBatcherLive = (): boolean => /^0x[a-fA-F0-9]{40}$/.test(process.env.PORTFOLIO_BATCHER_ADDRESS || "");
