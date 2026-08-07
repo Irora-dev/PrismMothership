@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.30",
-  "note": "Group basket creation becomes tap-first and visual: inline buttons on every step (the nudge starts a draft in one tap, votes are taps, launch is a tap), a living draft card whose bento tiles GROW with votes, the genuine Spectrum bento rendered into cards (squarified treemap + brand colors + white pills), and the closed loop \u2014 a launch matching a group's draft celebrates INTO that group with the bento card, auto-registers as /ourbasket, and enters the league.",
+  "version": "2026.08.03.31",
+  "note": "Dev-only Telegram playground at /dev/telegram (404 in production, same gate as /setup): a faithful group-chat UI driving the REAL bot handlers \u2014 personas, chatter, the buttoned nudge, tap-to-vote on the living bento draft card, launch handoff, and a celebration preview. For feeling the whole creation flow without touching Telegram.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
