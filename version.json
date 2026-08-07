@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.34",
-  "note": "A surface gate: npm run verify boots the app and exercises every card (byte floors + params-must-change-output), every command (no undefined/NaN/$0.00/escaped tags, DM-only stays DM-only), and every link the bot hands out. Wired as a hard release gate. It immediately caught a real one: the launch button 404ed when SPECTRUM_CREATE_URL was unset, so the bot now explains instead of inventing a dead link.",
+  "version": "2026.08.03.35",
+  "note": "Portfolio alerts, /pnl and /buy. Alerts cover the WHOLE wallet (every priceable ERC-20 on Ethereum and Base, not just baskets) and are built around restraint: a move must clear both a percentage and a dollar floor, at most a few a day, never twice about one asset within 12h, always ending in something actionable, /alerts off honoured immediately. /pnl measures from the moment you linked and says so. /buy prices an order and opens the venue \u2014 the bot never signs.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

@@ -128,6 +128,85 @@ export async function readPortfolio(address: string): Promise<PortfolioView> {
   return { positions, totalUsd: positions.reduce((s, p) => s + p.valueUsd, 0), checked: baskets.length };
 }
 
+// ── The WHOLE wallet, not just our baskets ───────────────────────────────────
+// Alerts about a member's positions are only useful if they cover what the
+// member actually holds. Alchemy returns every ERC-20 balance in one call per
+// chain; DexScreener prices them in one batched call per 30 addresses. Tokens
+// we can't price are dropped rather than shown at zero — an unpriceable row is
+// noise, and a wrong number is worse than a missing one.
+interface RawBal { contractAddress: string; tokenBalance: string }
+
+async function alchemyBalances(address: string, chain: "ethereum" | "base"): Promise<RawBal[]> {
+  const key = process.env.ALCHEMY_API_KEY;
+  if (!key) return [];
+  const host = chain === "base" ? "base-mainnet" : "eth-mainnet";
+  try {
+    const r = await fetch(`https://${host}.g.alchemy.com/v2/${key}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "alchemy_getTokenBalances", params: [address, "erc20"] }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return [];
+    const d = (await r.json()) as { result?: { tokenBalances?: RawBal[] } };
+    return (d.result?.tokenBalances ?? []).filter((b) => b.tokenBalance && !/^0x0*$/.test(b.tokenBalance));
+  } catch {
+    return [];
+  }
+}
+
+interface DexTok { baseToken?: { address?: string; symbol?: string }; priceUsd?: string; priceChange?: { h24?: number }; liquidity?: { usd?: number } }
+async function priceMany(chain: "ethereum" | "base", addrs: string[]): Promise<Map<string, { symbol: string; priceUsd: number; change24hPct: number | null }>> {
+  const out = new Map<string, { symbol: string; priceUsd: number; change24hPct: number | null }>();
+  for (let i = 0; i < addrs.length; i += 30) {
+    const batch = addrs.slice(i, i + 30);
+    try {
+      const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`, { signal: AbortSignal.timeout(15_000) });
+      if (!r.ok) continue;
+      const d = (await r.json()) as { pairs?: DexTok[] };
+      for (const p of d.pairs ?? []) {
+        const a = p.baseToken?.address?.toLowerCase();
+        const px = Number(p.priceUsd) || 0;
+        if (!a || !px) continue;
+        const prev = out.get(a);
+        // keep the deepest pool's quote for each token
+        if (!prev || (p.liquidity?.usd ?? 0) > 0) out.set(a, { symbol: p.baseToken?.symbol || "?", priceUsd: px, change24hPct: p.priceChange?.h24 ?? null });
+      }
+    } catch {
+      /* next batch */
+    }
+  }
+  return out;
+}
+
+/** every priceable ERC-20 the wallet holds on ETH + Base, plus our baskets */
+export async function readFullPortfolio(address: string): Promise<PortfolioView> {
+  const baskets = await readPortfolio(address);
+  const known = new Set(baskets.positions.map((p) => p.address.toLowerCase()));
+  const extra: Position[] = [];
+  for (const chain of ["ethereum", "base"] as const) {
+    const bals = await alchemyBalances(address, chain);
+    if (!bals.length) continue;
+    const addrs = bals.map((b) => b.contractAddress.toLowerCase()).filter((a) => !known.has(a)).slice(0, 60);
+    if (!addrs.length) continue;
+    const prices = await priceMany(chain, addrs);
+    for (const b of bals) {
+      const a = b.contractAddress.toLowerCase();
+      const px = prices.get(a);
+      if (!px) continue; // unpriceable → omit, never show a zero
+      // decimals unknown here; DexScreener prices are per whole token and 18 is
+      // overwhelmingly the norm — a wrong-decimals row would be a wrong NUMBER,
+      // so anything implausible is dropped below by the dust floor
+      const bal = Number(BigInt(b.tokenBalance)) / 1e18;
+      const valueUsd = bal * px.priceUsd;
+      if (valueUsd < 1) continue; // dust never speaks
+      extra.push({ symbol: px.symbol, address: a, chain, balance: bal, valueUsd, change24hPct: px.change24hPct });
+    }
+  }
+  const positions = [...baskets.positions, ...extra].sort((x, y) => y.valueUsd - x.valueUsd);
+  return { positions, totalUsd: positions.reduce((s, p) => s + p.valueUsd, 0), checked: baskets.checked + extra.length };
+}
+
 // ── Linking, either direction ────────────────────────────────────────────────
 // The bot mints a short code; the SITE claims it once the visitor's wallet is
 // connected (so the address is one they actually control, not one they typed).
@@ -171,5 +250,120 @@ export async function claimLinkCode(code: string, address: string): Promise<numb
     return p.userId;
   } catch {
     return null;
+  }
+}
+
+// ── Snapshots (what /pnl measures from) ──────────────────────────────────────
+// True cost basis needs every historical transfer priced at its block — an
+// indexer's job. What is honest and cheap: snapshot the portfolio when a wallet
+// is linked, and again on every alert sweep, then measure from there and SAY
+// SO. "Since you linked" is a real answer; a made-up cost basis is not.
+export interface Snapshot {
+  at: number;
+  totalUsd: number;
+  byAsset: Record<string, { valueUsd: number; balance: number }>; // keyed by address
+}
+const snapKey = (userId: number | string) => `snap:${userId}`;
+
+export async function getSnapshot(userId: number | string): Promise<Snapshot | null> {
+  try {
+    const b = await blob();
+    const raw = b ? await b.get(snapKey(userId), { type: "json" }) : mem.get(snapKey(userId));
+    const s = raw as Snapshot | null | undefined;
+    return s?.at ? s : null;
+  } catch {
+    return null;
+  }
+}
+export async function putSnapshot(userId: number | string, snap: Snapshot): Promise<void> {
+  try {
+    const b = await blob();
+    if (b) await b.setJSON(snapKey(userId), snap);
+    else mem.set(snapKey(userId), snap);
+  } catch {
+    /* best-effort */
+  }
+}
+export const snapshotOf = (pf: PortfolioView): Snapshot => ({
+  at: Date.now(),
+  totalUsd: pf.totalUsd,
+  byAsset: Object.fromEntries(pf.positions.map((p) => [p.address.toLowerCase(), { valueUsd: p.valueUsd, balance: p.balance }])),
+});
+
+// ── Alert preferences + the anti-nag state ───────────────────────────────────
+// An alert nobody wants is worse than no alerts. The discipline, encoded:
+//   · MATERIAL — a move must clear BOTH a % and a DOLLAR floor, so dust never
+//     speaks and a 3% move on a big position still can
+//   · RATE-LIMITED — a daily cap per user and a cooldown per asset
+//   · ACTIONABLE — every alert ends in something the reader can do
+//   · OPT-OUT — /alerts off, always
+export interface AlertPrefs {
+  on: boolean;
+  minPct: number; // move size that counts
+  minUsd: number; // …and it must be worth this much
+  maxPerDay: number;
+}
+export interface AlertState {
+  prefs: AlertPrefs;
+  sentToday: number;
+  dayStamp: string; // YYYY-MM-DD, resets the daily count
+  lastByAsset: Record<string, number>; // address → ms of last alert
+  lastClaimNudge?: number;
+}
+export const DEFAULT_PREFS: AlertPrefs = { on: true, minPct: 12, minUsd: 25, maxPerDay: 3 };
+const ASSET_COOLDOWN_MS = 12 * 3_600_000;
+const alertKey = (userId: number | string) => `alerts:${userId}`;
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+export async function getAlertState(userId: number | string): Promise<AlertState> {
+  try {
+    const b = await blob();
+    const raw = b ? await b.get(alertKey(userId), { type: "json" }) : mem.get(alertKey(userId));
+    const s = raw as AlertState | null | undefined;
+    if (s?.prefs) return s;
+  } catch {
+    /* fresh */
+  }
+  return { prefs: { ...DEFAULT_PREFS }, sentToday: 0, dayStamp: dayOf(Date.now()), lastByAsset: {} };
+}
+export async function putAlertState(userId: number | string, s: AlertState): Promise<void> {
+  try {
+    const b = await blob();
+    if (b) await b.setJSON(alertKey(userId), s);
+    else mem.set(alertKey(userId), s);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** may this user hear about this asset right now? enforces cap + cooldown */
+export function alertAllowed(st: AlertState, assetKey: string, now: number): boolean {
+  if (!st.prefs.on) return false;
+  if (st.dayStamp !== dayOf(now)) return true; // new day resets the cap
+  if (st.sentToday >= st.prefs.maxPerDay) return false;
+  const last = st.lastByAsset[assetKey] ?? 0;
+  return now - last > ASSET_COOLDOWN_MS;
+}
+export function noteAlertSent(st: AlertState, assetKey: string, now: number): AlertState {
+  const day = dayOf(now);
+  return {
+    ...st,
+    dayStamp: day,
+    sentToday: st.dayStamp === day ? st.sentToday + 1 : 1,
+    lastByAsset: { ...st.lastByAsset, [assetKey]: now },
+  };
+}
+
+/** everyone with a linked wallet — the sweep's roster */
+export async function linkedUsers(): Promise<(number | string)[]> {
+  try {
+    const b = await blob();
+    if (!b) return [...mem.keys()].filter((k) => k.startsWith("u:")).map((k) => k.slice(2));
+    const withList = b as unknown as { list?: (o: { prefix: string }) => Promise<{ blobs: { key: string }[] }> };
+    if (typeof withList.list !== "function") return [];
+    const { blobs } = await withList.list({ prefix: "u:" });
+    return blobs.map((x) => x.key.slice(2));
+  } catch {
+    return [];
   }
 }

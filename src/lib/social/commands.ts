@@ -12,7 +12,10 @@ import { getIndexData, listIndexes } from "@/lib/spectrum/index-data";
 import { fmtUsdFull, fmtEth, fmtPrism } from "@/lib/feed/format";
 import { detectTickers, type TickerTally } from "./group-signal";
 import { observe, recentTickers, hotTickers } from "./group-store";
-import { getLinkedWallet, linkWallet, unlinkWallet, newLinkCode, stashLinkCode, readPortfolio } from "./dm-portfolio";
+import {
+  getLinkedWallet, linkWallet, unlinkWallet, newLinkCode, stashLinkCode, readPortfolio, readFullPortfolio,
+  getSnapshot, putSnapshot, snapshotOf, getAlertState, putAlertState, DEFAULT_PREFS,
+} from "./dm-portfolio";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
 import { validateAddress } from "./token-validate";
@@ -490,7 +493,8 @@ async function linkText(userId: number, args: string): Promise<string> {
 async function meText(userId: number): Promise<{ text: string; card?: string }> {
   const addr = await getLinkedWallet(userId);
   if (!addr) return { text: "No wallet linked yet — <code>/link</code> takes about ten seconds." };
-  const pf = await readPortfolio(addr);
+  const pf = await readFullPortfolio(addr);
+  if (!(await getSnapshot(userId))) await putSnapshot(userId, snapshotOf(pf)); // /pnl measures from here
   if (!pf.positions.length) {
     return {
       text: [
@@ -544,6 +548,102 @@ async function reweightText(userId: number, args: string): Promise<{ text: strin
   }
   const s = await splitText(args);
   return { text: s.text.replace("🧺 <b>The split</b>", "⚖️ <b>Your target</b>"), createHref: s.createHref };
+}
+
+// /pnl — measured from the snapshot taken when the wallet was linked. Honest
+// about what it is: a real cost basis needs every historical transfer priced at
+// its block, which is an indexer's job, so this says "since you linked" rather
+// than inventing an entry price.
+async function pnlText(userId: number): Promise<string> {
+  const addr = await getLinkedWallet(userId);
+  if (!addr) return "Link a wallet first — <code>/link</code>.";
+  const snap = await getSnapshot(userId);
+  const pf = await readFullPortfolio(addr);
+  if (!snap) {
+    await putSnapshot(userId, snapshotOf(pf));
+    return [
+      "📈 <b>Tracking from now</b>",
+      "",
+      `Starting point: <b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${pf.positions.length} position${pf.positions.length === 1 ? "" : "s"}.`,
+      "",
+      "Ask again any time — /pnl measures from here.",
+    ].join("\n");
+  }
+  const days = Math.max(1, Math.round((Date.now() - snap.at) / 86_400_000));
+  const delta = pf.totalUsd - snap.totalUsd;
+  const deltaPct = snap.totalUsd > 0 ? (delta / snap.totalUsd) * 100 : 0;
+  const movers = pf.positions
+    .map((p) => {
+      const was = snap.byAsset[p.address.toLowerCase()];
+      // only positions held at BOTH ends are comparable — a new buy isn't a gain
+      return was ? { sym: p.symbol, d: p.valueUsd - was.valueUsd } : null;
+    })
+    .filter((x): x is { sym: string; d: number } => x !== null)
+    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+    .slice(0, 4);
+  return [
+    `📈 <b>Since you linked</b> · ${days}d`,
+    "",
+    `${delta >= 0 ? "🟢" : "🔴"} <b>${delta >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(delta)))}</b> (${esc(pct(deltaPct))})`,
+    `Now ${esc(fmtUsdFull(pf.totalUsd))} · was ${esc(fmtUsdFull(snap.totalUsd))}`,
+    ...(movers.length ? ["", "<b>Biggest movers</b>", ...movers.map((m) => `· $${esc(m.sym)} ${m.d >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(m.d)))}`)] : []),
+    "",
+    "Measured from your link, not from your entry price — deposits and withdrawals move it too.",
+  ].join("\n");
+}
+
+// /buy <ca|ticker> <usd> — price it, then hand over the venue. The bot never
+// signs; this is a prepared order, not an executed one.
+async function buyText(args: string): Promise<{ text: string; href: string | null }> {
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { text: "Usage: <code>/buy PEPE 100</code> or <code>/buy 0x… 100</code> — the amount is in USD.", href: null };
+  const q = parts[0];
+  const usd = Number(parts[1]);
+  const t = /^0x[a-fA-F0-9]{40}$/.test(q) ? await validateAddress(q) : await validateTicker(q);
+  if (!t) return { text: `Couldn't find <b>${esc(q)}</b> as a tradeable token on Ethereum or Base.`, href: null };
+  const href = `https://matcha.xyz/tokens/${t.chain}/${t.address}`;
+  const amountLine =
+    Number.isFinite(usd) && usd > 0
+      ? `<b>${esc(fmtUsdFull(usd))}</b> ≈ ${esc(fmtPrism(usd / (t.priceUsd || 1)))} $${esc(t.symbol)} at ${esc(fmtPrice(t.priceUsd))}`
+      : `${esc(fmtPrice(t.priceUsd))} per $${esc(t.symbol)} — add an amount for the size, e.g. <code>/buy ${esc(t.symbol)} 100</code>`;
+  return {
+    text: [
+      `🛒 <b>$${esc(t.symbol)}</b> · ${esc(chainName(t.chain))}`,
+      "",
+      amountLine,
+      t.liquidityUsd < MIN_LIQUIDITY_USD ? "⚠️ Thin liquidity — expect slippage." : "",
+      "",
+      "You sign it in your own wallet — I never do.",
+    ].filter(Boolean).join("\n"),
+    href,
+  };
+}
+const buyButton = (href: string | null, sym?: string): TgButtons | undefined => (href ? [[{ text: `🛒 Open the swap${sym ? ` — $${sym}` : ""}`, url: href }]] : undefined);
+
+// /alerts — the controls. Defaults are deliberately quiet.
+async function alertsText(userId: number, args: string): Promise<string> {
+  const st = await getAlertState(userId);
+  const a = args.trim().toLowerCase();
+  if (a === "off" || a === "on") {
+    st.prefs.on = a === "on";
+    await putAlertState(userId, st);
+    return st.prefs.on ? "🔔 Alerts on. I'll only speak when something material happens." : "🔕 Alerts off. Nothing from me unless you ask.";
+  }
+  const m = a.match(/^(\d{1,3})\s*%?$/);
+  if (m) {
+    st.prefs.minPct = Math.max(3, Math.min(90, Number(m[1])));
+    await putAlertState(userId, st);
+    return `🔔 I'll flag moves of <b>${st.prefs.minPct}%</b> or more (worth at least ${esc(fmtUsdFull(st.prefs.minUsd))}).`;
+  }
+  return [
+    `🔔 <b>Alerts</b> — ${st.prefs.on ? "on" : "off"}`,
+    "",
+    `· Material moves only: <b>${st.prefs.minPct}%+</b> AND worth ${esc(fmtUsdFull(st.prefs.minUsd))}+`,
+    `· At most <b>${st.prefs.maxPerDay} a day</b>, and never twice about the same asset within 12h`,
+    "· Claimable fees worth collecting",
+    "",
+    "<code>/alerts off</code> · <code>/alerts on</code> · <code>/alerts 20</code> (move size)",
+  ].join("\n");
 }
 
 function lightrunnerText(): string {
@@ -687,7 +787,10 @@ function helpText(): string {
     "<b>In a private message with me</b>",
     "/link · connect a wallet (read-only)",
     "/me · your positions across every chain",
+    "/pnl · how you're doing since you linked",
     "/reweight 60 X 40 Y · a target, then the page to sign it",
+    "/alerts · material moves only, at most a few a day",
+    "/buy &lt;ticker|0x…&gt; &lt;usd&gt; · price it, then the swap",
     "",
     "<b>Group tools</b>",
     "/ourbasket &lt;ticker&gt; · register the group's basket, then live stats",
@@ -1257,6 +1360,18 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         if (!isDm) return wrap(DM_ONLY);
         const mp = await meText(msg.from?.id ?? 0);
         return wrap(mp.text, mp.card);
+      }
+      case "pnl": {
+        if (!isDm) return wrap(DM_ONLY);
+        return wrap(await pnlText(msg.from?.id ?? 0));
+      }
+      case "buy": {
+        const b2 = await buyText(args);
+        return wrap(b2.text, undefined, buyButton(b2.href));
+      }
+      case "alerts": {
+        if (!isDm) return wrap(DM_ONLY);
+        return wrap(await alertsText(msg.from?.id ?? 0, args));
       }
       case "reweight": {
         if (!isDm) return wrap(DM_ONLY);

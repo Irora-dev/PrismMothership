@@ -18,6 +18,14 @@ export async function GET(req: NextRequest) {
   }
   const dryRun = req.nextUrl.searchParams.get("dry") === "1";
   try {
+    // alerts=1 → the per-member portfolio sweep (material moves only)
+    if (req.nextUrl.searchParams.get("alerts") === "1") {
+      const { sweepAlerts } = await import("@/lib/social/alerts");
+      const armed = process.env.SOCIAL_ENABLED === "1" || process.env.SOCIAL_ENABLED === "true";
+      const res = await sweepAlerts(dryRun || !armed);
+      return NextResponse.json({ alerts: true, dryRun: dryRun || !armed, ...res });
+    }
+
     // weekly=1 → the Monday recap: every registered group gets its watchlist
     // scoreboard + league card. Per-chat sends (not the broadcast channels).
     if (req.nextUrl.searchParams.get("weekly") === "1") {

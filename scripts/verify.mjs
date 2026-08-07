@@ -167,6 +167,10 @@ const COMMANDS = [
   ["/link", DM],
   ["/me", DM],
   ["/reweight", DM],
+  ["/pnl", DM],
+  ["/alerts", DM],
+  ["/buy PEPE 100", GROUP, { slow: true }],
+  ["/pnl", GROUP, { expect: "private message" }],
   ["/link", GROUP, { expect: "private message" }], // DM-only must refuse in groups
 ];
 
