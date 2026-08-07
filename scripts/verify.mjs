@@ -94,6 +94,10 @@ const CARDS = [
   { kind: "quote&in=0.5&out=4.2", min: 20_000, vary: "quote&in=9.9&out=88.8" },
   { kind: "idea&syms=AAA,BBB", min: 20_000, vary: "idea&syms=XXX,YYY,ZZZ" },
   { kind: "split&spec=60:AAA,40:BBB", min: 20_000, vary: "split&spec=25:CCC,75:DDD" },
+  { kind: "me&total=1200&legs=AAA:800,BBB:400", min: 20_000, vary: "me&total=99&legs=ZZZ:99" },
+  { kind: "pnl&total=1200&delta=200&legs=AAA:800", min: 20_000, vary: "pnl&total=900&delta=-300&legs=ZZZ:900" },
+  { kind: "buy&sym=AAA&amount=%24100&from=trim%20BBB", min: 20_000, vary: "buy&sym=ZZZ&amount=%24900&from=cash" },
+  { kind: "reweight&from=sell%20AAA", min: 20_000, vary: "reweight&from=buy%20ZZZ" },
 ];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 

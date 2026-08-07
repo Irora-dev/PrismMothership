@@ -16,6 +16,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RAINBOW = ["#ff5a5a", "#ff9f45", "#ffe14d", "#5cff8f", "#3bd9ff", "#7c8bff", "#c06aff"];
+// Spectrum is its OWN product with its own brand — baskets, the portfolio and
+// anything the launchpad owns wear this, never the Prism mark. Its exact
+// gradient, lifted from the operator site's .spectrum-text-gradient.
+const SPECTRUM_RAINBOW = ["#ef4444", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"];
+type Brand = "prism" | "spectrum";
+// Which surfaces belong to Spectrum. Everything basket- or portfolio-shaped.
+const SPECTRUM_KINDS = new Set([
+  "baskets", "league", "ourbasket", "watchlist", "split", "idea", "draftcard",
+  "bento", "portfolio", "launch", "me", "pnl", "buy", "reweight",
+]);
 const C = { green: "#00FF87", orange: "#FF5E00", cyan: "#00F0FF", purple: "#9D00FF", ground: "#030409" };
 
 function rainbowMark(cell: number) {
@@ -66,31 +76,51 @@ const usd = (n: number, d = 2) => "$" + n.toLocaleString("en-US", { minimumFract
 const num = (n: number, d = 2) => n.toLocaleString("en-US", { maximumFractionDigits: d });
 
 // shared chrome: ground + ambient blooms + glass panel + brand row + foil rule
-function Frame({ title, accent, children }: { title: string; accent: string; children: React.ReactNode }) {
+// The Spectrum wordmark: the name under its own rainbow rule, no Prism mark.
+function SpectrumMark() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", fontSize: 40, fontWeight: 800, letterSpacing: 10, color: "#f8fafc" }}>SPECTRUM</div>
+      <div style={{ display: "flex", width: 250, height: 5, borderRadius: 3, marginTop: 8, background: `linear-gradient(90deg, ${SPECTRUM_RAINBOW.join(",")})` }} />
+    </div>
+  );
+}
+
+function Frame({ title, accent, brand = "prism", children }: { title: string; accent: string; brand?: Brand; children: React.ReactNode }) {
   const mark = rainbowMark(7);
+  const isSpectrum = brand === "spectrum";
+  const rule = isSpectrum ? SPECTRUM_RAINBOW : RAINBOW;
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", background: C.ground, fontFamily: "sans-serif", position: "relative" }}>
       <div style={{ position: "absolute", top: -180, left: -120, width: 560, height: 560, borderRadius: 9999, background: `${accent}22`, filter: "blur(120px)", display: "flex" }} />
       <div style={{ position: "absolute", bottom: -220, right: -100, width: 620, height: 620, borderRadius: 9999, background: `${C.purple}1f`, filter: "blur(130px)", display: "flex" }} />
-      <div style={{ position: "absolute", top: 0, left: 0, width: 1200, height: 6, display: "flex", background: `linear-gradient(90deg, ${RAINBOW.join(",")})` }} />
+      <div style={{ position: "absolute", top: 0, left: 0, width: 1200, height: 6, display: "flex", background: `linear-gradient(90deg, ${rule.join(",")})` }} />
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: 56, justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={mark.src} width={mark.w} height={mark.h} alt="" style={{ marginRight: 20 }} />
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 6, color: "#f8fafc" }}>THE PRISM MOTHERSHIP</div>
-              <div style={{ display: "flex", alignItems: "center", marginTop: 6 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 9999, background: C.green, marginRight: 10, display: "flex" }} />
-                <div style={{ fontSize: 18, letterSpacing: 4, color: "#64748b", fontWeight: 700 }}>LIVE · ON-CHAIN</div>
-              </div>
-            </div>
+            {isSpectrum ? (
+              <SpectrumMark />
+            ) : (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={mark.src} width={mark.w} height={mark.h} alt="" style={{ marginRight: 20 }} />
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 6, color: "#f8fafc" }}>THE PRISM MOTHERSHIP</div>
+                  <div style={{ display: "flex", alignItems: "center", marginTop: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 9999, background: C.green, marginRight: 10, display: "flex" }} />
+                    <div style={{ fontSize: 18, letterSpacing: 4, color: "#64748b", fontWeight: 700 }}>LIVE · ON-CHAIN</div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ display: "flex", fontSize: 22, fontWeight: 800, letterSpacing: 5, color: accent, border: `2px solid ${accent}55`, borderRadius: 9999, padding: "10px 26px", background: `${accent}14` }}>{title}</div>
         </div>
         {children}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", fontSize: 19, color: "#475569" }}>Figures track third-party trading — they vary and can be zero.</div>
+          <div style={{ display: "flex", fontSize: 19, color: "#475569" }}>
+            {isSpectrum ? "Spectrum · figures track third-party trading and can be zero." : "Figures track third-party trading — they vary and can be zero."}
+          </div>
           <div style={{ display: "flex", fontSize: 20, color: "#64748b", fontWeight: 700, letterSpacing: 2 }}>@SpectraPrismBot</div>
         </div>
       </div>
@@ -434,6 +464,59 @@ export async function GET(req: NextRequest) {
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Basket not found</div>
     );
+  } else if (kind === "me" || kind === "pnl") {
+    // the member's book — a Spectrum product surface. Positions as a bento so
+    // the shape is readable at a glance, not a list of numbers to parse.
+    const q = req.nextUrl.searchParams;
+    const isPnl = kind === "pnl";
+    title = isPnl ? "SINCE YOU LINKED" : "YOUR BOOK"; accent = isPnl ? C.green : C.cyan;
+    const total = Number(q.get("total") || 0);
+    const delta = Number(q.get("delta") || 0);
+    const legs = (q.get("legs") || "").split(",").map((p) => { const [s, v] = p.split(":"); return { symbol: (s || "").slice(0, 12).toUpperCase(), address: (s || "").toUpperCase(), weightPct: Math.max(0.01, Number(v) || 0) }; }).filter((l) => l.symbol).slice(0, 8);
+    body = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 380 }}>
+          <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>{isPnl ? "CHANGE" : "TOTAL VALUE"}</div>
+          {isPnl ? (
+            <div style={{ display: "flex", fontSize: 84, fontWeight: 800, letterSpacing: -3, color: delta >= 0 ? C.green : "#ff5a7a" }}>{`${delta >= 0 ? "+" : "−"}${usd(Math.abs(delta), 0)}`}</div>
+          ) : (
+            <div style={{ display: "flex", fontSize: 84, fontWeight: 800, color: "#fff", letterSpacing: -3 }}>{usd(total, 0)}</div>
+          )}
+          {isPnl ? <div style={{ display: "flex", fontSize: 30, color: "#94a3b8", marginTop: 6 }}>now {usd(total, 0)}</div> : null}
+          <div style={{ display: "flex", fontSize: 23, color: "#64748b", marginTop: 14 }}>{legs.length} position{legs.length === 1 ? "" : "s"} · every chain</div>
+        </div>
+        {legs.length ? <Bento items={legs} w={640} h={370} /> : <div style={{ display: "flex", fontSize: 44, color: "#64748b" }}>Nothing held yet</div>}
+      </div>
+    );
+  } else if (kind === "buy" || kind === "reweight") {
+    // the ORDER, as a portfolio operation: what it costs, what funds it
+    const q = req.nextUrl.searchParams;
+    const isBuy = kind === "buy";
+    title = isBuy ? "PREPARED BUY" : "REBALANCE"; accent = isBuy ? C.green : C.purple;
+    const sym = (q.get("sym") || "").slice(0, 12).toUpperCase();
+    const amount = q.get("amount") || "";
+    const share = q.get("share") || "";
+    const from = (q.get("from") || "").split("|").map((s) => s.slice(0, 46)).filter(Boolean).slice(0, 4);
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {sym ? (
+            <div style={{ display: "flex", background: tokenVisual(sym, sym).color, borderRadius: 18, padding: "10px 24px", fontSize: 58, fontWeight: 800, color: "#fff", boxShadow: "inset 0 2px 0 rgba(255,255,255,0.3), inset 0 -5px 12px rgba(0,0,0,0.25)" }}>${sym}</div>
+          ) : null}
+          {amount ? <div style={{ display: "flex", fontSize: 62, fontWeight: 800, color: "#fff", marginLeft: 26 }}>{amount}</div> : null}
+        </div>
+        <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700, marginTop: 32 }}>FUNDED BY</div>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+          {from.length ? from.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", marginTop: i ? 12 : 0 }}>
+              <div style={{ display: "flex", width: 12, height: 12, borderRadius: 6, background: accent, marginRight: 16 }} />
+              <div style={{ display: "flex", fontSize: 31, color: "#e2e8f0" }}>{f}</div>
+            </div>
+          )) : <div style={{ display: "flex", fontSize: 31, color: "#64748b" }}>link a wallet and I&apos;ll show what funds it</div>}
+        </div>
+        {share ? <div style={{ display: "flex", fontSize: 25, color: "#94a3b8", marginTop: 26 }}>{share}</div> : null}
+      </div>
+    );
   } else if (kind === "idea") {
     // the chatter suggestion, visualized: the group's hot tickers as equal-weight
     // bento tiles. Symbols only (no addresses yet) — tokenVisual falls back to a
@@ -618,7 +701,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return new ImageResponse(<Frame title={title} accent={accent}>{body}</Frame>, {
+  const brand: Brand = SPECTRUM_KINDS.has(kind) ? "spectrum" : "prism";
+  return new ImageResponse(<Frame title={title} accent={accent} brand={brand}>{body}</Frame>, {
     width: 1200,
     height: 630,
     headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },

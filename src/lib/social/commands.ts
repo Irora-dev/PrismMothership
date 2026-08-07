@@ -510,16 +510,18 @@ async function meText(userId: number): Promise<{ text: string; card?: string }> 
   const lines = pf.positions
     .slice(0, 10)
     .map((p) => `· <b>$${esc(p.symbol)}</b> — ${esc(fmtUsdFull(p.valueUsd))}${p.change24hPct != null ? ` (${esc(pct(p.change24hPct))})` : ""} · ${esc(chainName(p.chain))}`);
+  const chains = new Set(pf.positions.map((p) => p.chain)).size;
   return {
     text: [
-      `👛 <b>Your positions</b> · <code>${esc(addr.slice(0, 6))}…${esc(addr.slice(-4))}</code>`,
+      `👛 <b>Your book</b> · ${esc(fmtUsdFull(pf.totalUsd))}`,
+      `<code>${esc(addr.slice(0, 6))}…${esc(addr.slice(-4))}</code> · ${pf.positions.length} position${pf.positions.length === 1 ? "" : "s"} · ${chains} chain${chains === 1 ? "" : "s"}`,
       "",
       ...lines,
+      pf.positions.length > 10 ? `<i>…and ${pf.positions.length - 10} smaller</i>` : "",
       "",
-      `Total: <b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${new Set(pf.positions.map((p) => p.chain)).size} chain(s)`,
-      "",
-      "Reweight with <code>/reweight 60 X 40 Y</code> — I build the target, you sign it on the site.",
-    ].join("\n"),
+      "<code>/pnl</code> how it's doing · <code>/reweight</code> change the shape · <code>/alerts</code> what I'll tell you",
+    ].filter(Boolean).join("\n"),
+    card: cardUrl(`me&total=${Math.round(pf.totalUsd)}&legs=${encodeURIComponent(pf.positions.slice(0, 8).map((p) => `${p.symbol}:${Math.max(1, Math.round(p.valueUsd))}`).join(","))}`),
   };
 }
 
@@ -528,7 +530,7 @@ async function meText(userId: number): Promise<{ text: string; card?: string }> 
 // composition by launching a NEW version that the old one points at socially
 // (the factory's own doc: "no successor pointer — versioning by social
 // convention"). Both paths end at the site, signed by the user's own wallet.
-async function reweightText(userId: number, args: string): Promise<{ text: string; createHref: string | null }> {
+async function reweightText(userId: number, args: string): Promise<{ text: string; createHref: string | null; card?: string }> {
   const addr = await getLinkedWallet(userId);
   if (!addr) return { text: "Link a wallet first — <code>/link</code>.", createHref: null };
   const legs = parseSplit(args);
@@ -576,6 +578,7 @@ async function reweightText(userId: number, args: string): Promise<{ text: strin
         : "Until the Portfolio batcher is on-chain these are separate swaps you sign yourself.",
     ].join("\n"),
     createHref: s.createHref,
+    card: cardUrl(`reweight&from=${encodeURIComponent(rows.slice(0, 4).map((r) => r.replace(/<[^>]+>/g, "").replace(/^· /, "")).join("|"))}&share=${encodeURIComponent(`book ${fmtUsdFull(total)}`)}`),
   };
 }
 
@@ -583,20 +586,22 @@ async function reweightText(userId: number, args: string): Promise<{ text: strin
 // about what it is: a real cost basis needs every historical transfer priced at
 // its block, which is an indexer's job, so this says "since you linked" rather
 // than inventing an entry price.
-async function pnlText(userId: number): Promise<string> {
+async function pnlText(userId: number): Promise<{ text: string; card?: string }> {
   const addr = await getLinkedWallet(userId);
-  if (!addr) return "Link a wallet first — <code>/link</code>.";
+  if (!addr) return { text: "Link a wallet first — <code>/link</code>." };
   const snap = await getSnapshot(userId);
   const pf = await readFullPortfolio(addr);
   if (!snap) {
     await putSnapshot(userId, snapshotOf(pf));
-    return [
-      "📈 <b>Tracking from now</b>",
-      "",
-      `Starting point: <b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${pf.positions.length} position${pf.positions.length === 1 ? "" : "s"}.`,
-      "",
-      "Ask again any time — /pnl measures from here.",
-    ].join("\n");
+    return {
+      text: [
+        "📈 <b>Tracking from now</b>",
+        "",
+        `Starting point: <b>${esc(fmtUsdFull(pf.totalUsd))}</b> across ${pf.positions.length} position${pf.positions.length === 1 ? "" : "s"}.`,
+        "",
+        "Ask again any time — /pnl measures from here.",
+      ].join("\n"),
+    };
   }
   const days = Math.max(1, Math.round((Date.now() - snap.at) / 86_400_000));
   const delta = pf.totalUsd - snap.totalUsd;
@@ -610,15 +615,18 @@ async function pnlText(userId: number): Promise<string> {
     .filter((x): x is { sym: string; d: number } => x !== null)
     .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
     .slice(0, 4);
-  return [
-    `📈 <b>Since you linked</b> · ${days}d`,
-    "",
-    `${delta >= 0 ? "🟢" : "🔴"} <b>${delta >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(delta)))}</b> (${esc(pct(deltaPct))})`,
-    `Now ${esc(fmtUsdFull(pf.totalUsd))} · was ${esc(fmtUsdFull(snap.totalUsd))}`,
-    ...(movers.length ? ["", "<b>Biggest movers</b>", ...movers.map((m) => `· $${esc(m.sym)} ${m.d >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(m.d)))}`)] : []),
-    "",
-    "Measured from your link, not from your entry price — deposits and withdrawals move it too.",
-  ].join("\n");
+  return {
+    text: [
+      `📈 <b>Since you linked</b> · ${days}d`,
+      "",
+      `${delta >= 0 ? "🟢" : "🔴"} <b>${delta >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(delta)))}</b> (${esc(pct(deltaPct))})`,
+      `Now ${esc(fmtUsdFull(pf.totalUsd))} · was ${esc(fmtUsdFull(snap.totalUsd))}`,
+      ...(movers.length ? ["", "<b>Biggest movers</b>", ...movers.map((m) => `${m.d >= 0 ? "🟢" : "🔴"} <b>$${esc(m.sym)}</b> ${m.d >= 0 ? "+" : "−"}${esc(fmtUsdFull(Math.abs(m.d)))}`)] : []),
+      "",
+      "<i>Measured from your link, not your entry price — deposits and withdrawals move it too.</i>",
+    ].join("\n"),
+    card: cardUrl(`pnl&total=${Math.round(pf.totalUsd)}&delta=${Math.round(delta)}&legs=${encodeURIComponent(pf.positions.slice(0, 8).map((p) => `${p.symbol}:${Math.max(1, Math.round(p.valueUsd))}`).join(","))}`),
+  };
 }
 
 // /buy <ca|ticker> <usd> — price it, then hand over the venue. The bot never
@@ -628,7 +636,7 @@ async function pnlText(userId: number): Promise<string> {
 // — and show the shape it leaves behind. That plan is exactly what the Spectrum
 // Portfolio batcher will execute in ONE transaction once it is on-chain; until
 // then the legs are signed individually on the venue, and we say so.
-async function buyText(userId: number, isDm: boolean, args: string): Promise<{ text: string; href: string | null }> {
+async function buyText(userId: number, isDm: boolean, args: string): Promise<{ text: string; href: string | null; card?: string }> {
   const parts = args.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return { text: "Usage: <code>/buy PEPE 100</code> or <code>/buy 0x… 100</code> — the amount is in USD.", href: null };
   const q = parts[0];
@@ -657,22 +665,39 @@ async function buyText(userId: number, isDm: boolean, args: string): Promise<{ t
 
   const pf = await readFullPortfolio(addr);
   const plan = planFunding(pf, usd, t.chain);
-  const lines: string[] = [...head, "", "<b>Funded by</b>"];
-  for (const l of plan.fromCash) lines.push(`· ${esc(fmtUsdFull(l.takeUsd))} from your <b>$${esc(l.symbol)}</b> cash${l.chain !== t.chain ? ` (on ${esc(chainName(l.chain))} — bridge first)` : ""}`);
-  for (const l of plan.fromTrim)
-    lines.push(`· trim <b>$${esc(l.symbol)}</b> by ${esc(fmtUsdFull(l.takeUsd))} (${Math.round((l.takeUsd / l.ofPositionUsd) * 100)}% of that position)${l.chain !== t.chain ? ` — on ${esc(chainName(l.chain))}` : ""}`);
-  if (!plan.fromCash.length && !plan.fromTrim.length) lines.push("· nothing in this wallet to fund it with yet");
-  if (plan.shortfallUsd > 0.01) lines.push(`· ⚠️ ${esc(fmtUsdFull(plan.shortfallUsd))} short — send funds or buy smaller`);
+  const fundLines: string[] = [];
+  const cardFrom: string[] = [];
+  for (const l of plan.fromCash) {
+    fundLines.push(`💵 ${esc(fmtUsdFull(l.takeUsd))} of your <b>$${esc(l.symbol)}</b> cash${l.chain !== t.chain ? ` · on ${esc(chainName(l.chain))}, bridge first` : ""}`);
+    cardFrom.push(`${fmtUsdFull(l.takeUsd)} of ${l.symbol} cash`);
+  }
+  for (const l of plan.fromTrim) {
+    const share = Math.round((l.takeUsd / l.ofPositionUsd) * 100);
+    fundLines.push(`✂️ trim <b>$${esc(l.symbol)}</b> by ${esc(fmtUsdFull(l.takeUsd))} · ${share}% of that position${l.chain !== t.chain ? ` · on ${esc(chainName(l.chain))}` : ""}`);
+    cardFrom.push(`trim ${l.symbol} by ${fmtUsdFull(l.takeUsd)}`);
+  }
+  if (!fundLines.length) fundLines.push("· nothing in this wallet to fund it with yet");
+  if (plan.shortfallUsd > 0.01) fundLines.push(`⚠️ <b>${esc(fmtUsdFull(plan.shortfallUsd))} short</b> — send funds or buy smaller`);
 
   const after = pf.totalUsd > 0 ? (usd / pf.totalUsd) * 100 : 0;
-  lines.push("", `After this, $${esc(t.symbol)} is about <b>${after.toFixed(0)}%</b> of your ${esc(fmtUsdFull(pf.totalUsd))} book.`);
-  lines.push(
+  const shareLine = `Leaves $${t.symbol} at ~${after.toFixed(0)}% of your ${fmtUsdFull(pf.totalUsd)} book`;
+  const lines = [
+    ...head,
+    "",
+    "<b>Funded by</b>",
+    ...fundLines,
+    "",
+    `📊 ${esc(shareLine)}`,
     "",
     portfolioBatcherLive()
-      ? "Spectrum Portfolio can execute this as one batched transaction — you sign once, I never do."
-      : "Until Spectrum Portfolio's batcher is on-chain these are separate swaps you sign yourself — I never do.",
-  );
-  return { text: lines.join("\n"), href };
+      ? "<i>Spectrum Portfolio executes this as one batched transaction — you sign once, I never do.</i>"
+      : "<i>Until Spectrum Portfolio's batcher is on-chain these are separate swaps you sign yourself — I never do.</i>",
+  ];
+  return {
+    text: lines.join("\n"),
+    href,
+    card: cardUrl(`buy&sym=${encodeURIComponent(t.symbol)}&amount=${encodeURIComponent(fmtUsdFull(usd))}&from=${encodeURIComponent(cardFrom.join("|"))}&share=${encodeURIComponent(shareLine)}`),
+  };
 }
 const buyButton = (href: string | null, sym?: string): TgButtons | undefined => (href ? [[{ text: `🛒 Open the swap${sym ? ` — $${sym}` : ""}`, url: href }]] : undefined);
 
@@ -1419,11 +1444,14 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       }
       case "pnl": {
         if (!isDm) return wrap(DM_ONLY);
-        return wrap(await pnlText(msg.from?.id ?? 0));
+        {
+          const pl = await pnlText(msg.from?.id ?? 0);
+          return wrap(pl.text, pl.card);
+        }
       }
       case "buy": {
         const b2 = await buyText(msg.from?.id ?? 0, isDm, args);
-        return wrap(b2.text, undefined, buyButton(b2.href));
+        return wrap(b2.text, b2.card, buyButton(b2.href, undefined));
       }
       case "alerts": {
         if (!isDm) return wrap(DM_ONLY);
@@ -1432,7 +1460,7 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "reweight": {
         if (!isDm) return wrap(DM_ONLY);
         const rw = await reweightText(msg.from?.id ?? 0, args);
-        return wrap(rw.text, undefined, createButton(rw.createHref));
+        return wrap(rw.text, rw.card, createButton(rw.createHref));
       }
       case "ourbasket":
       case "mybasket":

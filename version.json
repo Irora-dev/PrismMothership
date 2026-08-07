@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.36",
-  "note": "Buying and reweighting are portfolio operations, not isolated swaps: /buy shows what funds it (cash first, then a bounded trim of what you hold), flags cross-chain legs and shortfalls, and states the share it leaves; /reweight expresses a target as buy/sell deltas against your real book including exits to zero. Both name the Spectrum Portfolio batcher as the one-transaction path and switch to it automatically once PORTFOLIO_BATCHER_ADDRESS is set.",
+  "version": "2026.08.03.37",
+  "note": "Spectrum is its own brand: every basket- and portfolio-shaped card now carries the Spectrum wordmark and its own rainbow instead of the Prism mark. The DM surface got cards too \u2014 your book and your P&L as bentos, a prepared buy showing what funds it, a rebalance showing the deltas \u2014 and the copy behind them was tightened.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
