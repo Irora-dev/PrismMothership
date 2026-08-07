@@ -42,13 +42,22 @@ async function sendOne(token: string, chatId: string, text: string, photoUrl?: s
 // Reply to a single chat (the one that messaged the bot) — used by the incoming
 // command webhook. Separate from postTelegram, which fans a broadcast out to the
 // configured channel list.
+/** one row per inner array — Telegram inline keyboard, callback_data ≤64 bytes */
+export type TgButtons = { text: string; data: string }[][];
+const keyboard = (b?: TgButtons) => (b?.length ? { inline_keyboard: b.map((row) => row.map((x) => ({ text: x.text, callback_data: x.data.slice(0, 64) }))) } : undefined);
+
+export interface SendResult {
+  ok: boolean;
+  messageId?: number; // for editing the message later (the living draft card)
+}
+
 export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
-  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string } = {},
-): Promise<boolean> {
+  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string; buttons?: TgButtons } = {},
+): Promise<SendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
+  if (!token) return { ok: false };
   // With a photo, the text rides as the caption (Telegram caps captions at 1024
   // chars — command replies are well under). Telegram fetches the URL itself.
   const asPhoto = Boolean(opts.photoUrl) && text.length <= 1000;
@@ -56,6 +65,8 @@ export async function sendTelegramMessage(
     ? { chat_id: chatId, photo: opts.photoUrl, caption: text }
     : { chat_id: chatId, text, disable_web_page_preview: opts.disablePreview ?? true };
   if (opts.parseMode) body.parse_mode = opts.parseMode;
+  const kb = keyboard(opts.buttons);
+  if (kb) body.reply_markup = kb;
   if (opts.replyTo) {
     body.reply_to_message_id = opts.replyTo;
     body.allow_sending_without_reply = true; // still post if the target message is gone
@@ -66,9 +77,96 @@ export async function sendTelegramMessage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!r.ok) return { ok: false };
+    const d = (await r.json().catch(() => null)) as { result?: { message_id?: number } } | null;
+    return { ok: true, messageId: d?.result?.message_id };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** edit a previously sent message in place — the living draft card's heartbeat */
+export async function editTelegramMessage(
+  chatId: string | number,
+  messageId: number,
+  text: string,
+  opts: { parseMode?: "HTML"; buttons?: TgButtons } = {},
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  const body: Record<string, unknown> = { chat_id: chatId, message_id: messageId, text, disable_web_page_preview: true };
+  if (opts.parseMode) body.parse_mode = opts.parseMode;
+  const kb = keyboard(opts.buttons);
+  if (kb) body.reply_markup = kb;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     return r.ok;
   } catch {
     return false;
+  }
+}
+
+/** ack a button tap (stops the spinner; optional toast) */
+export async function answerCallback(callbackQueryId: string, text?: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, ...(text ? { text: text.slice(0, 190) } : {}) }),
+    });
+  } catch {
+    /* cosmetic */
+  }
+}
+
+/** edit a PHOTO message in place — new image + caption + buttons (the living
+ * draft card is a photo, and editMessageText can't touch those) */
+export async function editTelegramPhoto(
+  chatId: string | number,
+  messageId: number,
+  photoUrl: string,
+  caption: string,
+  opts: { parseMode?: "HTML"; buttons?: TgButtons } = {},
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    message_id: messageId,
+    media: { type: "photo", media: photoUrl, caption: caption.slice(0, 1000), parse_mode: opts.parseMode },
+  };
+  const kb = keyboard(opts.buttons);
+  if (kb) body.reply_markup = kb;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/editMessageMedia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** best-effort delete (repost-at-bottom flow); needs delete rights, fails quietly */
+export async function deleteTelegramMessage(chatId: string | number, messageId: number): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+  } catch {
+    /* fine */
   }
 }
 

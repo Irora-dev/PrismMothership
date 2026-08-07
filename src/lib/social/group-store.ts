@@ -32,12 +32,15 @@ async function groupBlob(): Promise<BlobJson | null> {
     return null;
   }
 }
+const mem = new Map<string, unknown>(); // dev fallback — Blobs don't exist locally, and
+// without this every stateful flow was untestable off Netlify (registry pattern)
 const key = (chatId: number | string) => `g:${chatId}`;
 
 async function load(chatId: number | string): Promise<GroupState> {
   try {
     const b = await groupBlob();
-    const s = b ? ((await b.get(key(chatId), { type: "json" })) as GroupState | null) : null;
+    const raw = b ? await b.get(key(chatId), { type: "json" }) : mem.get(key(chatId));
+    const s = raw as GroupState | null | undefined;
     if (s && s.v === 1 && Array.isArray(s.mentions)) return s;
   } catch {
     /* fresh */
@@ -48,6 +51,7 @@ async function save(chatId: number | string, s: GroupState): Promise<void> {
   try {
     const b = await groupBlob();
     if (b) await b.setJSON(key(chatId), s);
+    else mem.set(key(chatId), s);
   } catch {
     /* best-effort */
   }

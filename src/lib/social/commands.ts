@@ -11,11 +11,12 @@ import { getProvider, getBaseProvider, fetchLiveStats, fetchHistory } from "@/li
 import { getIndexData, listIndexes } from "@/lib/spectrum/index-data";
 import { fmtUsdFull, fmtEth, fmtPrism } from "@/lib/feed/format";
 import { detectTickers, type TickerTally } from "./group-signal";
-import { observe, recentTickers } from "./group-store";
+import { observe, recentTickers, hotTickers } from "./group-store";
 import { validateTickers, validateTicker, resolveToken, dexUrl, type TokenMatch } from "./token-validate";
 import { getDraft, proposeToken, dropToken, voteToken, clearDraft, draftChain, type Draft } from "./group-draft";
 import { validateAddress } from "./token-validate";
-import { getRegistry, setGroupBasket, clearGroupBasket, addWatch, removeWatch, registeredChats, MAX_WATCHLIST } from "./group-registry";
+import { getRegistry, setGroupBasket, clearGroupBasket, addWatch, removeWatch, registeredChats, touchChat, MAX_WATCHLIST } from "./group-registry";
+import type { TgButtons } from "./telegram";
 
 const MIN_BASKET_TOKENS = 2;
 const MAX_BASKET_TOKENS = 8; // operator composer max
@@ -90,6 +91,10 @@ export interface TgReply {
   replyTo?: number;
   /** live stat-card image (api/card) — sent as a photo with the text as caption */
   photoUrl?: string;
+  /** inline keyboard rows (tap targets — the addictive layer) */
+  buttons?: import("./telegram").TgButtons;
+  /** the webhook stores this message's id as the group's living draft card */
+  isDraftCard?: boolean;
 }
 
 // ── Anti-spam (first layer) ───────────────────────────────────────────────────
@@ -453,6 +458,101 @@ function lightrunnerText(): string {
   ].join("\n");
 }
 
+// ── THE LIVING DRAFT CARD — one photo message per group, edited as taps land ──
+// The bento is the visual: proposed tokens as tiles that GROW with votes.
+export interface DraftCardView {
+  caption: string;
+  photoUrl: string;
+  buttons: TgButtons;
+}
+export function draftCardView(chatId: number | string, d: Draft): DraftCardView {
+  const need = Math.max(0, MIN_BASKET_TOKENS - d.tokens.length);
+  const cool = d.updatedAt > 0 && Date.now() - d.updatedAt > 48 * 3_600_000;
+  const lines = [
+    "🧺 <b>The group basket draft</b>",
+    "",
+    ...d.tokens.map((t) => `• <b>$${esc(t.symbol)}</b> 👍${t.votes.length}${t.note ? ` — <i>${esc(t.note.slice(0, 60))}</i>` : ""}`),
+    d.tokens.length ? "" : "Nothing proposed yet.",
+    need > 0 ? `${need} more token${need === 1 ? "" : "s"} to launch. <code>/propose $TICKER why</code>` : "Ready — whoever launches earns the creator-fee slice on every trade, forever.",
+    cool ? "🧊 This draft has gone quiet — launch it or it melts away." : "",
+  ].filter(Boolean);
+  const voteRows: TgButtons = [];
+  for (let i = 0; i < d.tokens.length; i += 2) {
+    voteRows.push(d.tokens.slice(i, i + 2).map((t) => ({ text: `👍 ${t.symbol} (${t.votes.length})`, data: `v:${t.symbol.slice(0, 12)}` })));
+  }
+  const actions: TgButtons[number] = [];
+  if (d.tokens.length >= MIN_BASKET_TOKENS) actions.push({ text: "🚀 Launch it", data: "d:launch" });
+  actions.push({ text: "➕ Add a token", data: "d:add" });
+  return {
+    caption: lines.join("\n"),
+    photoUrl: cardUrl(`draftcard&chat=${encodeURIComponent(String(chatId))}&u=${d.updatedAt}`),
+    buttons: [...voteRows, actions],
+  };
+}
+
+// draft mutations answer with the card itself; the webhook stores its message id
+function draftCardReply(chatId: number | string, d: Draft): TgReply {
+  const v = draftCardView(chatId, d);
+  return { chatId, text: v.caption, parseMode: "HTML", disablePreview: true, photoUrl: v.photoUrl, buttons: v.buttons, isDraftCard: true };
+}
+
+// ── button taps (callback_query) — every step of the flow without typing ─────
+export interface TgCallback {
+  id: string;
+  from?: { id?: number; first_name?: string };
+  message?: { message_id: number; chat: TgChat };
+  data?: string;
+}
+export interface CallbackAction {
+  toast?: string; // answerCallbackQuery text (the little popup)
+  refreshCard?: boolean; // re-render the living card in place
+  reply?: TgReply; // post a fresh message (e.g. the launch handoff)
+}
+export async function handleCallback(cb: TgCallback): Promise<CallbackAction> {
+  const chat = cb.message?.chat;
+  const data = cb.data || "";
+  if (!chat) return {};
+  const userId = cb.from?.id ?? 0;
+  if (rateLimited(userId)) return { toast: "Easy 🙂 give it a few seconds." };
+
+  if (data.startsWith("v:")) {
+    const sym = data.slice(2);
+    const before = await getDraft(chat.id);
+    const tok = before.tokens.find((x) => x.symbol.toLowerCase() === sym.toLowerCase());
+    if (!tok) return { toast: "That token left the draft." };
+    if (userId && tok.votes.includes(userId)) return { toast: "You already voted that one." };
+    await voteToken(chat.id, sym, userId, Date.now());
+    return { toast: `Voted $${sym} 👍`, refreshCard: true };
+  }
+  if (data === "d:start") {
+    if (!groupFeaturesEnabled()) return { toast: "Drafting isn't switched on here yet." };
+    const hot = await hotTickers(chat.id, Date.now());
+    if (hot.length < MIN_BASKET_TOKENS) return { toast: "Not enough hot tickers right now — /createbasket X Y works any time." };
+    let added = 0;
+    let chain: "ethereum" | "base" | undefined;
+    for (const sym of hot.slice(0, MAX_BASKET_TOKENS)) {
+      const t = await validateTicker(sym, chain);
+      if (!t) continue;
+      const r = await proposeToken(chat.id, t, userId, cb.from?.first_name, "from the group's chatter", Date.now());
+      if (r.status === "added") {
+        added++;
+        chain = r.draft.tokens[0]?.chain as "ethereum" | "base" | undefined;
+      }
+    }
+    if (!added) return { toast: "Couldn't validate those tickers just now — try /createbasket." };
+    await touchChat(chat.id, chat.title);
+    return { toast: `Draft started with ${added} token${added === 1 ? "" : "s"} 🧺`, refreshCard: true, reply: draftCardReply(chat.id, await getDraft(chat.id)) };
+  }
+  if (data === "d:launch") {
+    if (!groupFeaturesEnabled()) return { toast: "Launching isn't switched on here yet." };
+    const text = await launchDraftText(chat.id);
+    return { toast: "Launch checklist 🚀", reply: { chatId: chat.id, text, parseMode: "HTML", disablePreview: true } };
+  }
+  if (data === "d:add") return { toast: "Type: /propose $TICKER and why. I validate it and the group votes." };
+  if (data === "d:no") return { toast: "Fair. I'll keep watching quietly." };
+  return {};
+}
+
 function helpText(): string {
   return [
     "🔻 <b>Spectra · The Prism Bot</b>",
@@ -734,11 +834,12 @@ function suggestionText(hot: TickerTally[]): string {
   return [
     "🧺 <b>Basket idea</b>",
     "",
-    `This group keeps mentioning ${syms.map((s) => "$" + esc(s)).join(", ")}. Bundle them into one basket — one token, the whole thesis, every trade feeding the PRISM burn?`,
+    `This group keeps mentioning ${syms.map((s) => "$" + esc(s)).join(", ")}. One tap bundles them into a draft — one token, the whole thesis, every trade feeding the PRISM burn.`,
     "",
-    `<code>/createbasket ${syms.join(" ")}</code>`,
+    "💰 Whoever launches it earns the creator-fee slice on every trade, forever.",
   ].join("\n");
 }
+const suggestionButtons = (): TgButtons => [[{ text: "🧺 Start the draft", data: "d:start" }, { text: "Not now", data: "d:no" }]];
 
 // The group-chatter listener: on every group message (privacy mode OFF), track
 // the tickers mentioned and, when a cluster is hot enough (distinct users +
@@ -761,7 +862,7 @@ export async function handleGroupMessage(update: TgUpdate): Promise<TgReply | nu
   if (!tickers.length) return null;
   const obs = await observe(msg.chat.id, msg.from?.id ?? 0, tickers, Date.now());
   if (!obs.suggest) return null;
-  return { chatId: msg.chat.id, text: suggestionText(obs.suggest), parseMode: "HTML", disablePreview: true };
+  return { chatId: msg.chat.id, text: suggestionText(obs.suggest), parseMode: "HTML", disablePreview: true, buttons: suggestionButtons() };
 }
 
 function greetingText(): string {
@@ -769,6 +870,8 @@ function greetingText(): string {
     "gm 🔻 I'm <b>the Prism bot</b>.",
     "",
     "Live eyes on Spectrum baskets + the PRISM buy &amp; burn. Try <b>/baskets</b>, <b>/leaderboard</b>, <b>/burn</b> — or just @mention me a question.",
+    "",
+    "And talk tickers — when this group agrees on something, I'll help you make it a token. 🧺",
     "/help for everything.",
   ].join("\n");
 }
@@ -973,8 +1076,12 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "leaderboard":
       case "top":
         return wrap(await leaderboardText(), cardUrl("baskets"));
-      case "basket":
-        return wrap(await basketText(args));
+      case "basket": {
+        const text = await basketText(args);
+        const q = args.trim().replace(/^\$/, "").toLowerCase();
+        const hit = q ? (await listIndexes()).find((b) => b.symbol.toLowerCase() === q || b.address.toLowerCase() === q) : null;
+        return wrap(text, hit ? cardUrl(`bento&address=${hit.address}`) : undefined);
+      }
       case "price":
         return wrap(await priceText(), cardUrl("price"));
       case "supply":
@@ -1021,10 +1128,22 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(linksText());
       case "createbasket":
         return wrap(groupFeaturesEnabled() ? await createBasketText(args) : comingSoonText());
-      case "draft":
-        return wrap(groupFeaturesEnabled() ? await draftShow(msg.chat.id) : comingSoonText());
-      case "propose":
-        return wrap(groupFeaturesEnabled() ? await proposeCmd(msg.chat.id, args, msg.from?.id ?? 0, senderName(msg)) : comingSoonText());
+      case "draft": {
+        if (!groupFeaturesEnabled()) return wrap(comingSoonText());
+        const d = await getDraft(msg.chat.id);
+        if (!d.tokens.length) return wrap(await draftShow(msg.chat.id));
+        return draftCardReply(msg.chat.id, d);
+      }
+      case "propose": {
+        if (!groupFeaturesEnabled()) return wrap(comingSoonText());
+        const before = (await getDraft(msg.chat.id)).tokens.length;
+        const text = await proposeCmd(msg.chat.id, args, msg.from?.id ?? 0, senderName(msg));
+        const d = await getDraft(msg.chat.id);
+        await touchChat(msg.chat.id, msg.chat.title);
+        // a successful add answers with the LIVING CARD; failures explain in text
+        if (d.tokens.length > before) return draftCardReply(msg.chat.id, d);
+        return wrap(text);
+      }
       case "vote":
         return wrap(groupFeaturesEnabled() ? await voteCmd(msg.chat.id, args, msg.from?.id ?? 0) : comingSoonText());
       case "drop":

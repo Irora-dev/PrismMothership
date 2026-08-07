@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.29",
-  "note": "Group tools: /ourbasket (register the group's basket \u2014 live stats + card, honest de-listing on factory rotation), /watch //watchlist (shared radar, performance since added), /token (instant intel, micro-cap-safe prices), /split (allocation sketch \u2192 create page), /league (group baskets ranked), bare-CA-paste intel, Monday weekly recap posts, and cards for all of it. Registry stores addresses only and resolves through the discovery layer, so the coming Spectrum factory update needs zero bot changes.",
+  "version": "2026.08.03.30",
+  "note": "Group basket creation becomes tap-first and visual: inline buttons on every step (the nudge starts a draft in one tap, votes are taps, launch is a tap), a living draft card whose bento tiles GROW with votes, the genuine Spectrum bento rendered into cards (squarified treemap + brand colors + white pills), and the closed loop \u2014 a launch matching a group's draft celebrates INTO that group with the bento card, auto-registers as /ourbasket, and enters the league.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

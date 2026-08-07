@@ -92,6 +92,19 @@ async function indexChat(chatId: number | string): Promise<void> {
   }
 }
 
+/** put a chat on the index without registering anything — drafting counts:
+ * the launch-celebration matcher must be able to find chats with open drafts */
+export async function touchChat(chatId: number | string, title?: string): Promise<void> {
+  if (title) {
+    const r = await getRegistry(chatId);
+    if (r.title !== title) {
+      r.title = title;
+      await saveRegistry(chatId, r);
+    }
+  }
+  await indexChat(chatId);
+}
+
 /** every chat that has registered anything — the weekly recap + league roster */
 export async function registeredChats(): Promise<(number | string)[]> {
   return (await getIndex()).chats;

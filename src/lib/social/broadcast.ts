@@ -4,6 +4,7 @@ import { fetchHistory } from "@/lib/chain/live";
 import { fmtEth, fmtPrism } from "@/lib/feed/format";
 import { eventShareUrl } from "@/lib/feed/share";
 import { postTelegram, telegramEnabled } from "./telegram";
+import { celebrateLaunch } from "./celebrate";
 import { postX, xEnabled } from "./x";
 
 // ── Auto-share broadcaster ────────────────────────────────────────────────────
@@ -139,6 +140,8 @@ export async function broadcast(
           ? `${process.env.URL}/api/card?kind=launch&symbol=${encodeURIComponent(e.symbol || "")}&name=${encodeURIComponent(e.label || "")}&chain=${encodeURIComponent(e.chain || "")}`
           : `${process.env.URL}/opengraph-image`
       : undefined;
+    // a launch may be a GROUP's draft come true — celebrate into that group
+    if (e.kind === "launch") await celebrateLaunch(e, opts?.dryRun ?? false).catch(() => null);
     const [tg, x] = await Promise.all([
       enabled.telegram ? postTelegram(text, img) : Promise.resolve({ ok: false }),
       enabled.x ? postX(text) : Promise.resolve({ ok: false }),

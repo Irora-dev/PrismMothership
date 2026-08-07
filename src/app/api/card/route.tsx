@@ -3,6 +3,9 @@ import { NextRequest } from "next/server";
 import { listIndexes } from "@/lib/spectrum/index-data";
 import { getRegistry, registeredChats } from "@/lib/social/group-registry";
 import { validateAddress } from "@/lib/social/token-validate";
+import { getDraft } from "@/lib/social/group-draft";
+import { squarify } from "@/lib/spectrum/treemap";
+import { tokenVisual } from "@/lib/spectrum/token-visual";
 
 // ── Live stat cards for the Telegram bot (and anything else) ─────────────────
 // GET /api/card?kind=digest|price|burn|earned → a 1200×630 branded PNG with
@@ -100,6 +103,91 @@ function Stat({ label, value, accent, big }: { label: string; value: string; acc
     <div style={{ display: "flex", flexDirection: "column", padding: big ? "30px 40px" : "24px 32px", borderRadius: 24, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)", borderTop: `3px solid ${accent}`, flexGrow: big ? 1.5 : 1, marginRight: 22 }}>
       <div style={{ display: "flex", fontSize: 19, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>{label}</div>
       <div style={{ display: "flex", fontSize: big ? 88 : 54, fontWeight: 800, color: "#ffffff", letterSpacing: -2, marginTop: 8 }}>{value}</div>
+    </div>
+  );
+}
+
+// ── The Spectrum bento, Satori edition ────────────────────────────────────────
+// Same design system as src/components/spectrum/basket-bento.tsx: the squarified
+// treemap (weight^0.65 areas), tokenVisual brand colors, white ticker pill,
+// weight in the token's ink, 3D tile (top highlight → bottom shade). Logos are
+// deliberately skipped — the component's own documented degradation ("color +
+// ticker then carry the tile"), and a dead logo URL can never kill a render.
+interface BentoTile { symbol: string; address: string; weightPct: number; badge?: string }
+function Bento({ items, w, h }: { items: BentoTile[]; w: number; h: number }) {
+  const rects = squarify(
+    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address, weight: Math.pow(i.weightPct, 0.65) })),
+    w,
+    h,
+  );
+  const byAddr = new Map(items.map((i) => [i.address.toLowerCase(), i]));
+  return (
+    <div style={{ display: "flex", position: "relative", width: w, height: h }}>
+      {rects.map((rc) => {
+        const it = byAddr.get(rc.ticker.toLowerCase());
+        if (!it) return null;
+        const vis = tokenVisual(it.symbol, it.address);
+        const minDim = Math.min(rc.w, rc.h);
+        const tickerFont = Math.max(13, Math.min(26, minDim * 0.15));
+        const badgeFont = Math.max(14, Math.min(28, minDim * 0.17));
+        const showLabels = minDim > 40;
+        return (
+          <div
+            key={rc.ticker}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              position: "absolute",
+              left: rc.x + 3,
+              top: rc.y + 3,
+              width: Math.max(2, rc.w - 6),
+              height: Math.max(2, rc.h - 6),
+              borderRadius: 14,
+              background: vis.color,
+              boxShadow: "inset 0 2px 0 rgba(255,255,255,0.30), inset 0 -5px 12px rgba(0,0,0,0.22)",
+              padding: 8,
+            }}
+          >
+            {/* vertical light → shade: the 3D tile read */}
+            <div
+              style={{
+                display: "flex",
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: Math.max(2, rc.w - 6),
+                height: Math.max(2, rc.h - 6),
+                borderRadius: 14,
+                background: "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0) 34%, rgba(0,0,0,0.16))",
+              }}
+            />
+            {showLabels ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    background: "rgba(255,255,255,0.9)",
+                    color: "#000",
+                    fontWeight: 800,
+                    fontSize: tickerFont,
+                    padding: "3px 8px",
+                    borderRadius: 8,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
+                  }}
+                >
+                  {it.symbol.slice(0, 10).toUpperCase()}
+                </div>
+                <div style={{ display: "flex", fontWeight: 700, fontSize: badgeFont, color: vis.ink }}>
+                  {it.badge ?? `${Math.round(it.weightPct)}%`}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex" }} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -237,18 +325,18 @@ export async function GET(req: NextRequest) {
     const reg = chat ? await getRegistry(chat) : null;
     const live = reg?.basket ? (await listIndexes()).find((b) => b.address.toLowerCase() === reg.basket!.address.toLowerCase()) : null;
     body = live ? (
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <div style={{ display: "flex", fontSize: 130, fontWeight: 800, color: "#fff", letterSpacing: -4 }}>${live.symbol.slice(0, 12)}</div>
-          <div style={{ display: "flex", fontSize: 60, fontWeight: 800, color: (live.change24hPct ?? 0) >= 0 ? C.green : "#ff5a7a", marginLeft: 34, marginBottom: 16 }}>
-            {live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(1)}%` : "—"}
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 560 }}>
+          <div style={{ display: "flex", fontSize: 96, fontWeight: 800, color: "#fff", letterSpacing: -3 }}>${live.symbol.slice(0, 12)}</div>
+          <div style={{ display: "flex", fontSize: 52, fontWeight: 800, color: (live.change24hPct ?? 0) >= 0 ? C.green : "#ff5a7a", marginTop: 4 }}>
+            {live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(1)}% 24h` : "—"}
+          </div>
+          <div style={{ display: "flex", marginTop: 26 }}>
+            <Stat label="AUM" value={usd(live.aumUsd, 0)} accent={C.purple} />
+            <Stat label="HOLDINGS" value={num(live.basketLength, 0)} accent={C.cyan} />
           </div>
         </div>
-        <div style={{ display: "flex", marginTop: 30 }}>
-          <Stat label="AUM" value={usd(live.aumUsd, 0)} accent={C.purple} />
-          <Stat label="24H" value={live.change24hPct != null ? `${live.change24hPct >= 0 ? "+" : ""}${live.change24hPct.toFixed(2)}%` : "—"} accent={(live.change24hPct ?? 0) >= 0 ? C.green : C.orange} />
-          <Stat label="HOLDINGS" value={num(live.basketLength, 0)} accent={C.cyan} />
-        </div>
+        <Bento items={live.top} w={470} h={330} />
       </div>
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No basket registered — /ourbasket TICKER</div>
@@ -327,6 +415,48 @@ export async function GET(req: NextRequest) {
       </div>
     ) : (
       <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>/split 60 X 40 Y</div>
+    );
+  } else if (kind === "bento") {
+    // any live basket as the genuine bento — the visualization piece
+    const addr = (req.nextUrl.searchParams.get("address") || "").toLowerCase();
+    const live = (await listIndexes()).find((b) => b.address.toLowerCase() === addr);
+    title = live ? `$${live.symbol.slice(0, 12)}` : "BASKET"; accent = C.purple;
+    body = live ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 320 }}>
+          <div style={{ display: "flex", fontSize: 30, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>ONE TOKEN,</div>
+          <div style={{ display: "flex", fontSize: 30, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>THE WHOLE BASKET</div>
+          <div style={{ display: "flex", fontSize: 48, fontWeight: 800, color: "#fff", marginTop: 18 }}>{usd(live.aumUsd, 0)}</div>
+          <div style={{ display: "flex", fontSize: 22, color: "#64748b" }}>AUM · {num(live.basketLength, 0)} holdings</div>
+        </div>
+        <Bento items={live.top} w={700} h={370} />
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Basket not found</div>
+    );
+  } else if (kind === "draftcard") {
+    // the living draft card: proposed tokens as tiles that GROW with votes
+    title = "GROUP DRAFT"; accent = C.purple;
+    const chat = req.nextUrl.searchParams.get("chat") || "";
+    const d = chat ? await getDraft(chat) : null;
+    const items: BentoTile[] = (d?.tokens ?? []).map((t) => ({
+      symbol: t.symbol,
+      address: t.address,
+      weightPct: 1 + t.votes.length,
+      badge: `👍${t.votes.length}`,
+    }));
+    body = items.length ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: 300 }}>
+          <div style={{ display: "flex", fontSize: 28, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>TILES GROW</div>
+          <div style={{ display: "flex", fontSize: 28, letterSpacing: 4, color: "#7c8aa0", fontWeight: 700 }}>WITH VOTES</div>
+          <div style={{ display: "flex", fontSize: 44, fontWeight: 800, color: "#fff", marginTop: 16 }}>{items.length}/8</div>
+          <div style={{ display: "flex", fontSize: 22, color: "#64748b" }}>slots filled</div>
+        </div>
+        <Bento items={items} w={720} h={370} />
+      </div>
+    ) : (
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty draft — /propose $TICKER why</div>
     );
   } else if (kind === "portfolio") {
     // Spectrum Portfolio berth card — honest empty until the batcher contracts

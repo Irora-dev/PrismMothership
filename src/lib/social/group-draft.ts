@@ -21,6 +21,7 @@ export interface Draft {
   tokens: DraftToken[];
   updatedAt: number;
   startedBy?: number;
+  cardMsgId?: number; // the living draft-card message (edited in place on taps)
 }
 
 const MAX = 8; // operator composer max
@@ -35,12 +36,15 @@ async function draftBlob(): Promise<BlobJson | null> {
     return null;
   }
 }
+const mem = new Map<string, unknown>(); // dev fallback — Blobs don't exist locally, and
+// without this every stateful flow was untestable off Netlify (registry pattern)
 const key = (chatId: number | string) => `d:${chatId}`;
 
 export async function getDraft(chatId: number | string): Promise<Draft> {
   try {
     const b = await draftBlob();
-    const s = b ? ((await b.get(key(chatId), { type: "json" })) as Draft | null) : null;
+    const raw = b ? await b.get(key(chatId), { type: "json" }) : mem.get(key(chatId));
+    const s = raw as Draft | null | undefined;
     if (s && s.v === 1 && Array.isArray(s.tokens)) return s;
   } catch {
     /* fresh */
@@ -51,6 +55,7 @@ async function save(chatId: number | string, d: Draft): Promise<void> {
   try {
     const b = await draftBlob();
     if (b) await b.setJSON(key(chatId), d);
+    else mem.set(key(chatId), d);
   } catch {
     /* best-effort */
   }
@@ -101,4 +106,11 @@ export async function voteToken(chatId: number | string, symbol: string, userId:
 
 export async function clearDraft(chatId: number | string, now: number): Promise<void> {
   await save(chatId, { ...emptyDraft(), updatedAt: now });
+}
+
+// remember which message is the group's living draft card
+export async function setDraftCardMsg(chatId: number | string, msgId: number): Promise<void> {
+  const dr = await getDraft(chatId);
+  dr.cardMsgId = msgId;
+  await save(chatId, dr);
 }

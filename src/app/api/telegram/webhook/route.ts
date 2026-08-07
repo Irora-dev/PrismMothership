@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildReply, handleGroupMessage, handleMembership } from "@/lib/social/commands";
-import { sendTelegramMessage } from "@/lib/social/telegram";
+import { buildReply, handleGroupMessage, handleMembership, handleCallback, draftCardView, type TgReply } from "@/lib/social/commands";
+import { answerCallback, editTelegramPhoto, sendTelegramMessage } from "@/lib/social/telegram";
+import { getDraft, setDraftCardMsg } from "@/lib/social/group-draft";
 
 // Telegram command webhook. Telegram POSTs every update here; we reply to
 // commands (/basket, /burn, …) and @-mentions, ignore the rest. Read-only — it
@@ -30,6 +31,29 @@ export async function POST(req: NextRequest) {
 
   try {
     const dry = req.nextUrl.searchParams.get("dry") === "1" && process.env.NODE_ENV !== "production";
+
+    // ── button taps: answer fast, refresh the living card in place ──────────
+    const cb = (update as { callback_query?: Parameters<typeof handleCallback>[0] }).callback_query;
+    if (cb) {
+      const action = await handleCallback(cb);
+      if (dry) return NextResponse.json({ ok: true, dryRun: true, action });
+      await answerCallback(cb.id, action.toast);
+      if (action.refreshCard && cb.message?.chat) {
+        const chatId = cb.message.chat.id;
+        const d = await getDraft(chatId);
+        const view = draftCardView(chatId, d);
+        // edit the stored card if we know it; else the tapped message IS the card
+        const target = d.cardMsgId || cb.message.message_id;
+        const edited = await editTelegramPhoto(chatId, target, view.photoUrl, view.caption, { parseMode: "HTML", buttons: view.buttons });
+        if (!edited) {
+          const sent = await sendTelegramMessage(chatId, view.caption, { parseMode: "HTML", photoUrl: view.photoUrl, buttons: view.buttons });
+          if (sent.messageId) await setDraftCardMsg(chatId, sent.messageId);
+        }
+      }
+      if (action.reply) await deliver(action.reply);
+      return NextResponse.json({ ok: true });
+    }
+
     // command/mention reply, and (group features on) the chatter listener → maybe a suggestion
     const [reply, suggestion] = await Promise.all([
       buildReply(update as never),
@@ -38,7 +62,7 @@ export async function POST(req: NextRequest) {
     const greeting = handleMembership(update as never); // on-join welcome
     if (dry) return NextResponse.json({ ok: true, dryRun: true, reply, suggestion, greeting });
     for (const r of [reply, suggestion, greeting]) {
-      if (r) await sendTelegramMessage(r.chatId, r.text, { parseMode: r.parseMode, disablePreview: r.disablePreview, replyTo: r.replyTo, photoUrl: r.photoUrl });
+      if (r) await deliver(r);
     }
   } catch (e) {
     console.error("[telegram webhook]", e);
@@ -46,6 +70,19 @@ export async function POST(req: NextRequest) {
 
   // Always 200 fast so Telegram doesn't retry the update.
   return NextResponse.json({ ok: true });
+}
+
+// send a reply; when it is the living draft card, remember its message id so
+// button taps can edit it in place
+async function deliver(r: TgReply): Promise<void> {
+  const sent = await sendTelegramMessage(r.chatId, r.text, {
+    parseMode: r.parseMode,
+    disablePreview: r.disablePreview,
+    replyTo: r.replyTo,
+    photoUrl: r.photoUrl,
+    buttons: r.buttons,
+  });
+  if (r.isDraftCard && sent.messageId) await setDraftCardMsg(r.chatId, sent.messageId);
 }
 
 // Lightweight health check (browser GET) — never leaks whether a secret is set.
