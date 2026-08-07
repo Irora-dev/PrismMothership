@@ -45,22 +45,23 @@ async function sendOne(token: string, chatId: string, text: string, photoUrl?: s
 export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
-  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number } = {},
+  opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string } = {},
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return false;
-  const body: Record<string, unknown> = {
-    chat_id: chatId,
-    text,
-    disable_web_page_preview: opts.disablePreview ?? true,
-  };
+  // With a photo, the text rides as the caption (Telegram caps captions at 1024
+  // chars — command replies are well under). Telegram fetches the URL itself.
+  const asPhoto = Boolean(opts.photoUrl) && text.length <= 1000;
+  const body: Record<string, unknown> = asPhoto
+    ? { chat_id: chatId, photo: opts.photoUrl, caption: text }
+    : { chat_id: chatId, text, disable_web_page_preview: opts.disablePreview ?? true };
   if (opts.parseMode) body.parse_mode = opts.parseMode;
   if (opts.replyTo) {
     body.reply_to_message_id = opts.replyTo;
     body.allow_sending_without_reply = true; // still post if the target message is gone
   }
   try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const r = await fetch(`https://api.telegram.org/bot${token}/${asPhoto ? "sendPhoto" : "sendMessage"}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.26",
-  "note": "The bot becomes the group's live terminal: /price, /supply (burn progress bar), /earned (lifetime fees per whole PRISM), /quote <eth>, /wallet <0x\u2026> (holdings + claimable), /lightrunner \u2014 plus a scheduled daily digest post (18:00 UTC, dormant unless SOCIAL_ENABLED). Menu roster updated to 15 commands.",
+  "version": "2026.08.03.27",
+  "note": "Live stat cards: /api/card?kind=digest|price|burn|earned renders 1200x630 Mothership-branded PNGs with live chain numbers (Satori). The bot's money commands (/price /supply /burn /earned) reply as photo + caption, and the daily digest posts with its card attached. Card URLs cache-bust hourly.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

@@ -30,6 +30,12 @@ function siteUrl(): string {
 
 // Group-basket features (chat→basket, /createbasket, suggestions) are built but
 // DARK — gated off until this flag is set. Read-only Q&A below is always live.
+// the branded live stat card for a command (api/card renders it) — cache-busted
+// hourly so Telegram's photo cache doesn't pin stale numbers all day
+function cardUrl(kind: string): string {
+  return `${siteUrl()}/api/card?kind=${kind}&t=${Math.floor(Date.now() / 3_600_000)}`;
+}
+
 function groupFeaturesEnabled(): boolean {
   return process.env.GROUP_FEATURES_ENABLED === "1" || process.env.GROUP_FEATURES_ENABLED === "true";
 }
@@ -79,6 +85,8 @@ export interface TgReply {
   parseMode: "HTML";
   disablePreview: boolean;
   replyTo?: number;
+  /** live stat-card image (api/card) — sent as a photo with the text as caption */
+  photoUrl?: string;
 }
 
 // ── Anti-spam (first layer) ───────────────────────────────────────────────────
@@ -719,7 +727,8 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
   if (typeof msg.date === "number" && Date.now() / 1000 - msg.date > MAX_AGE_S) return null;
   if (rateLimited(msg.from?.id)) return null;
 
-  const wrap = (body: string): TgReply => ({
+  const wrap = (body: string, photoUrl?: string): TgReply => ({
+    photoUrl,
     chatId: msg.chat.id,
     text: body,
     parseMode: "HTML",
@@ -736,7 +745,7 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "help":
         return wrap(helpText());
       case "burn":
-        return wrap(await burnText());
+        return wrap(await burnText(), cardUrl("burn"));
       case "bigburn":
         return wrap(await bigBurnText());
       case "prism":
@@ -749,12 +758,12 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "basket":
         return wrap(await basketText(args));
       case "price":
-        return wrap(await priceText());
+        return wrap(await priceText(), cardUrl("price"));
       case "supply":
-        return wrap(await supplyText());
+        return wrap(await supplyText(), cardUrl("burn"));
       case "earned":
       case "apy":
-        return wrap(await earnedText());
+        return wrap(await earnedText(), cardUrl("earned"));
       case "quote":
         return wrap(await quoteText(args));
       case "wallet":

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const greeting = handleMembership(update as never); // on-join welcome
     if (dry) return NextResponse.json({ ok: true, dryRun: true, reply, suggestion, greeting });
     for (const r of [reply, suggestion, greeting]) {
-      if (r) await sendTelegramMessage(r.chatId, r.text, { parseMode: r.parseMode, disablePreview: r.disablePreview, replyTo: r.replyTo });
+      if (r) await sendTelegramMessage(r.chatId, r.text, { parseMode: r.parseMode, disablePreview: r.disablePreview, replyTo: r.replyTo, photoUrl: r.photoUrl });
     }
   } catch (e) {
     console.error("[telegram webhook]", e);

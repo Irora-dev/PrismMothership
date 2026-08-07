@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     if (req.nextUrl.searchParams.get("digest") === "1") {
       const text = await dailyDigestText(getProvider(), getBaseProvider());
       if (!text) return NextResponse.json({ digest: false, reason: "no data" });
-      if (!dryRun && (process.env.SOCIAL_ENABLED === "1" || process.env.SOCIAL_ENABLED === "true")) await postTelegram(text);
+      if (!dryRun && (process.env.SOCIAL_ENABLED === "1" || process.env.SOCIAL_ENABLED === "true")) await postTelegram(text, `${process.env.URL || ""}/api/card?kind=digest&t=${Math.floor(Date.now() / 3_600_000)}`);
       return NextResponse.json({ digest: true, dryRun, text });
     }
     const result = await broadcast(getProvider(), getBaseProvider(), { dryRun });
