@@ -131,7 +131,14 @@ export async function broadcast(
   let maxTs = state.sinceTs;
   for (const e of fresh) {
     const text = messageFor(e)!;
-    const img = process.env.URL ? `${process.env.URL}/opengraph-image` : undefined;
+    // event-specific live card (falls back to the generic OG image)
+    const img = process.env.URL
+      ? e.kind === "burn" && e.prism
+        ? `${process.env.URL}/api/card?kind=burn-event&prism=${encodeURIComponent(String(e.prism))}`
+        : e.kind === "launch"
+          ? `${process.env.URL}/api/card?kind=launch&symbol=${encodeURIComponent(e.symbol || "")}&name=${encodeURIComponent(e.label || "")}&chain=${encodeURIComponent(e.chain || "")}`
+          : `${process.env.URL}/opengraph-image`
+      : undefined;
     const [tg, x] = await Promise.all([
       enabled.telegram ? postTelegram(text, img) : Promise.resolve({ ok: false }),
       enabled.x ? postX(text) : Promise.resolve({ ok: false }),

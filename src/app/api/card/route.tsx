@@ -26,13 +26,25 @@ function rainbowMark(cell: number) {
 }
 
 interface S { feesToHolders24h: number; feesToHoldersTotal: number; ethUsd: number; prismUsd?: number; totalBurned: number; supply: number; cap: number; indexCount: number; prismBurnedToday: number; }
+const ORIGINS = [...new Set([process.env.URL, process.env.DEPLOY_PRIME_URL, "http://localhost:3588", "http://localhost:3090"].filter(Boolean))] as string[];
+async function fetchFirst<T>(path: string, pick: (j: unknown) => T | null, timeoutMs = 8000): Promise<T | null> {
+  for (const base of ORIGINS) {
+    try {
+      const r = await fetch(`${base}${path}`, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+      if (!r.ok) continue;
+      const v = pick(await r.json());
+      if (v != null) return v;
+    } catch { /* next origin */ }
+  }
+  return null;
+}
+
 async function stats(): Promise<S | null> {
   // walk every plausible origin: the configured URL can point at a different
   // (or down) deployment while this instance can serve the stats itself —
   // in dev that self origin is the localhost server.
-  const bases = [...new Set([process.env.URL, process.env.DEPLOY_PRIME_URL, "http://localhost:3588", "http://localhost:3090"].filter(Boolean))] as string[];
   for (let i = 0; i < 2; i++) {
-    for (const base of bases) {
+    for (const base of ORIGINS) {
       try {
         const r = await fetch(`${base}/api/feed`, { signal: AbortSignal.timeout(i ? 9000 : 5000), cache: "no-store" });
         if (!r.ok) continue;
@@ -149,6 +161,87 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", marginTop: 34 }}>
           <Stat label="ALL-TIME TO HOLDERS" value={usd(f.feesToHoldersTotal * f.ethUsd, 0)} accent={C.green} />
           <Stat label="FEE-SHARE NFTS" value={num(f.supply, 0)} accent={C.cyan} />
+        </div>
+      </div>
+    );
+  } else if (kind === "burn-event") {
+    title = "BURN EVENT"; accent = C.orange;
+    const amt = Math.max(0, Math.min(5000, parseFloat(req.nextUrl.searchParams.get("prism") || "0") || 0));
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", fontSize: 34, letterSpacing: 6, color: C.orange, fontWeight: 800 }}>🔥 PRISM BURNED FOREVER</div>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", fontSize: 170, fontWeight: 800, color: "#fff", letterSpacing: -5 }}>{num(amt, 4)}</div>
+          <div style={{ display: "flex", fontSize: 36, color: "#94a3b8", marginLeft: 24, marginBottom: 32, fontWeight: 700 }}>PRISM</div>
+        </div>
+        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 6 }}>Bought off the market and sent to the dead address — supply only shrinks.</div>
+      </div>
+    );
+  } else if (kind === "launch") {
+    title = "NEW BASKET"; accent = C.purple;
+    const sym = (req.nextUrl.searchParams.get("symbol") || "").slice(0, 14).toUpperCase();
+    const name = (req.nextUrl.searchParams.get("name") || "A new basket").slice(0, 44);
+    const chain = (req.nextUrl.searchParams.get("chain") || "").slice(0, 20);
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", fontSize: 34, letterSpacing: 6, color: C.purple, fontWeight: 800 }}>🧺 LIVE ON SPECTRUM{chain ? ` · ${chain.toUpperCase()}` : ""}</div>
+        <div style={{ display: "flex", fontSize: sym ? 150 : 96, fontWeight: 800, color: "#fff", letterSpacing: -4 }}>{sym ? `$${sym}` : name}</div>
+        {sym ? <div style={{ display: "flex", fontSize: 40, color: "#94a3b8", fontWeight: 700 }}>{name}</div> : null}
+        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 18 }}>One token, the whole basket — every trade feeds the PRISM burn.</div>
+      </div>
+    );
+  } else if (kind === "prism") {
+    title = "PRISM REVENUE"; accent = C.green;
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", fontSize: 130, fontWeight: 800, color: "#fff", letterSpacing: -4 }}>{usd(f.feesToHoldersTotal * f.ethUsd, 0)}</div>
+          <div style={{ display: "flex", fontSize: 32, color: C.green, marginLeft: 24, marginBottom: 22, fontWeight: 700 }}>to holders · all time</div>
+        </div>
+        <div style={{ display: "flex", marginTop: 34 }}>
+          <Stat label="24H" value={usd(f.feesToHolders24h * f.ethUsd)} accent={C.green} />
+          <Stat label="BURNED FOREVER" value={num(f.totalBurned)} accent={C.orange} />
+          <Stat label="LIVE BASKETS" value={num(f.indexCount, 0)} accent={C.purple} />
+        </div>
+      </div>
+    );
+  } else if (kind === "baskets") {
+    title = "BASKET LEADERBOARD"; accent = C.purple;
+    const rows =
+      (await fetchFirst("/api/spectrum/indexes", (j) => {
+        const d = (j as { indexes?: { symbol: string; aumUsd: number }[] }).indexes;
+        return d?.length ? d.sort((a, b) => b.aumUsd - a.aumUsd).slice(0, 5) : null;
+      })) ?? [];
+    const top = rows[0]?.aumUsd || 1;
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {rows.map((b, i) => (
+          <div key={b.symbol} style={{ display: "flex", alignItems: "center", marginTop: i ? 16 : 0 }}>
+            <div style={{ display: "flex", width: 54, fontSize: 30, fontWeight: 800, color: "#64748b" }}>{i + 1}</div>
+            <div style={{ display: "flex", width: 300, fontSize: 38, fontWeight: 800, color: "#fff" }}>${b.symbol.slice(0, 12)}</div>
+            <div style={{ display: "flex", width: Math.max(30, (b.aumUsd / top) * 520), height: 30, borderRadius: 15, background: `linear-gradient(90deg, ${RAINBOW[i + 1]}, ${RAINBOW[i + 2] || RAINBOW[0]})` }} />
+            <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#cbd5e1", marginLeft: 22 }}>{usd(b.aumUsd, 0)}</div>
+          </div>
+        ))}
+        {!rows.length ? <div style={{ display: "flex", fontSize: 40, color: "#64748b" }}>Baskets are loading…</div> : null}
+      </div>
+    );
+  } else if (kind === "portfolio") {
+    // Spectrum Portfolio berth card — honest empty until the batcher contracts
+    // are on-chain (post-ceremony); lights up via the same live stats the
+    // command will read. Slots deliberately render "—", never zeros.
+    title = "SPECTRUM PORTFOLIO"; accent = C.orange;
+    body = (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ display: "flex", fontSize: 78, fontWeight: 800, color: "#fff", letterSpacing: -2 }}>Launching soon</div>
+          <div style={{ display: "flex", fontSize: 22, fontWeight: 800, letterSpacing: 3, color: C.orange, border: `2px solid ${C.orange}55`, borderRadius: 9999, padding: "8px 22px", background: `${C.orange}14`, marginLeft: 30 }}>BUILT &amp; AUDITED</div>
+        </div>
+        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 14, maxWidth: 900 }}>A whole portfolio in one buy, batched across baskets and tokens — a flat buy fee buys and burns PRISM. These slots light up the moment it is on-chain.</div>
+        <div style={{ display: "flex", marginTop: 30 }}>
+          <Stat label="PORTFOLIO VOLUME" value="—" accent={C.orange} />
+          <Stat label="FEES EARNED" value="—" accent={C.green} />
+          <Stat label="UNIQUE USERS" value="—" accent={C.cyan} />
         </div>
       </div>
     );

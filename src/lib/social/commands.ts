@@ -239,6 +239,34 @@ async function walletText(args: string): Promise<string> {
   }
 }
 
+// ── Spectrum Portfolio — the batcher is BUILT AND AUDITED but not deployed
+// (awaiting the ceremony). Until the contracts exist this answers honestly and
+// promises nothing; the LIVE branch below is the auto-light seam — it arms the
+// moment PORTFOLIO_BATCHER_ADDRESS is set (the batcher address arrives with the
+// post-ceremony event book), and the stats wiring lands with those contracts.
+function portfolioLive(): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(process.env.PORTFOLIO_BATCHER_ADDRESS || "");
+}
+async function portfolioText(): Promise<string> {
+  if (!portfolioLive()) {
+    return [
+      "📦 <b>Spectrum Portfolio</b> — launching soon",
+      "",
+      "A whole portfolio in one buy: batched execution across baskets and tokens, with a flat buy fee that buys and burns PRISM.",
+      "",
+      "Built and audited — volume, fees and unique users appear here the moment it is on-chain. 👀",
+      `${siteUrl()}/spectrum#portfolio`,
+    ].join("\n");
+  }
+  // LIVE branch: filled in when the batcher contracts + event book land.
+  return [
+    "📦 <b>Spectrum Portfolio</b>",
+    "",
+    "The batcher is on-chain — stats ingestion is being wired. Check the berth:",
+    `${siteUrl()}/spectrum#portfolio`,
+  ].join("\n");
+}
+
 function lightrunnerText(): string {
   return [
     "🌒 <b>Lightrunner</b>",
@@ -267,6 +295,7 @@ function helpText(): string {
     "/earned · lifetime fees per whole PRISM",
     "/quote &lt;eth&gt; · live buy quote",
     "/wallet &lt;0x…&gt; · holdings &amp; claimable fees",
+    "/portfolio · Spectrum Portfolio stats",
     "/lightrunner · the onchain roguelike",
     "/ca · the PRISM contract address",
     "/links · every official link",
@@ -749,12 +778,12 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
       case "bigburn":
         return wrap(await bigBurnText());
       case "prism":
-        return wrap(await prismText());
+        return wrap(await prismText(), cardUrl("prism"));
       case "baskets":
-        return wrap(await basketsText());
+        return wrap(await basketsText(), cardUrl("baskets"));
       case "leaderboard":
       case "top":
-        return wrap(await leaderboardText());
+        return wrap(await leaderboardText(), cardUrl("baskets"));
       case "basket":
         return wrap(await basketText(args));
       case "price":
@@ -768,6 +797,10 @@ export async function buildReply(update: TgUpdate): Promise<TgReply | null> {
         return wrap(await quoteText(args));
       case "wallet":
         return wrap(await walletText(args));
+      case "portfolio":
+      case "spectrumportfolio":
+      case "portfoliostats":
+        return wrap(await portfolioText(), cardUrl("portfolio"));
       case "lightrunner":
       case "game":
         return wrap(lightrunnerText());

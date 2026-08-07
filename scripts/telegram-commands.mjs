@@ -31,6 +31,7 @@ const COMMANDS = [
   { command: "earned", description: "Lifetime fees per whole PRISM" },
   { command: "quote", description: "Live buy quote — /quote 0.5" },
   { command: "wallet", description: "Holdings & claimable fees — /wallet 0x…" },
+  { command: "portfolio", description: "Spectrum Portfolio — volume, fees, users" },
   { command: "lightrunner", description: "The onchain roguelike — weekly leagues" },
   { command: "ca", description: "0xCf4d29f14Cc585DDd1167F956092852AF844e040" },
   { command: "links", description: "Every official link — linktr.ee/prism_lp" },
