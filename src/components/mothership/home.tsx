@@ -376,7 +376,7 @@ export function MothershipHome() {
             </span>
             <br />
             <span className="block mt-2 whitespace-nowrap text-xl font-bold tracking-tight text-slate-200 sm:text-2xl lg:text-3xl">
-              Welcome to the Prism Mothership.
+              Welcome to Prism Mothership.
             </span>
           </h1>
 
@@ -647,7 +647,7 @@ export function MothershipHome() {
           />
           <CollectibleCard
             name="Lightrunner"
-            tagline="An onchain roguelike bullet hell. Weekly leagues — run the dark, score high, win the pot."
+            tagline="An onchain roguelike bullet hell. Weekly leagues: run the dark, score high, win the pot."
             accent={C.indigo}
             badge={{ label: "New", pulse: true }}
             texture="/mothership/cards/card-lightrunner.webp"

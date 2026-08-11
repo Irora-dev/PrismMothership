@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
           "A watchlist that keeps winning is a basket waiting to exist: /createbasket 👀",
         ].filter(Boolean).join("\n");
         const photo = site ? `${site}/api/card?kind=${reg.watchlist.length ? `watchlist&chat=${encodeURIComponent(String(chatId))}` : "league"}&t=${Math.floor(Date.now() / 3_600_000)}` : undefined;
-        if (!dryRun && armed) await sendTelegramMessage(chatId, text, { parseMode: "HTML", disablePreview: true, photoUrl: photo });
+        if (!dryRun && armed) await sendTelegramMessage(chatId, text, { parseMode: "HTML", disablePreview: true, photoUrl: photo }, "spectrum");
         sent.push(chatId);
       }
       return NextResponse.json({ weekly: true, dryRun, chats: sent.length });

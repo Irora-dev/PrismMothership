@@ -336,9 +336,9 @@ export default function StudioPage() {
           {basketLoad === "loading" ? "Loading…" : "Load live"}
         </button>
       </div>
-      {basketLoad === "done" && <p className="text-[11px]" style={{ color: "#5cff8f" }}>Loaded from the chain — weights below are the live composition.</p>}
+      {basketLoad === "done" && <p className="text-[11px]" style={{ color: "#5cff8f" }}>Loaded from the chain · weights below are the live composition.</p>}
       {basketLoad === "missing" && <p className="text-[11px] text-amber-300">No discovered basket at that address (three chains scanned).</p>}
-      {basketLoad === "error" && <p className="text-[11px] text-red-300">Could not read the basket list — try again.</p>}
+      {basketLoad === "error" && <p className="text-[11px] text-red-300">Could not read the basket list. Try again.</p>}
     </div>
   );
 
@@ -509,7 +509,7 @@ export default function StudioPage() {
             <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">Studio</h1>
             <p className="text-slate-400 mt-1">
               {mode === "social"
-                ? "Design the auto-share post cards (1200×630) — this is what the bot posts to X & Telegram."
+                ? "Design the auto-share post cards (1200×630) · this is what the bot posts to X & Telegram."
                 : mode === "stats"
                   ? "The live Spectrum recap (1200×630): the launchpad's real on-chain numbers, ready to share."
                   : "Compose a branded marketing image, then copy it or export a PNG."}
@@ -639,7 +639,7 @@ export default function StudioPage() {
                   ))}
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  Every figure is pulled live from the same on-chain payload the /spectrum page renders — launches, trades,
+                  Every figure is pulled live from the same on-chain payload the /spectrum page renders: launches, trades,
                   volume, fees by chain, top baskets, and the 4-way fee split. Refresh right before you export.
                 </p>
               </div>
@@ -685,7 +685,7 @@ export default function StudioPage() {
                   <li>The on-chain 4-way fee split</li>
                 </ul>
                 <p className="text-[11px] text-slate-600 pt-1">
-                  Market facts only, straight from chain — safe to post as-is. Copy image drops it on your clipboard for X or Telegram.
+                  Market facts only, straight from chain, safe to post as-is. Copy image drops it on your clipboard for X or Telegram.
                 </p>
               </div>
             </>
@@ -773,7 +773,7 @@ export default function StudioPage() {
                 </div>
               ) : (
                 <div className="glass-card p-4 flex items-center justify-center text-[12px] text-slate-500 text-center">
-                  Burn posts are a clean stat card — no basket bento.
+                  Burn posts are a clean stat card, no basket bento.
                 </div>
               )}
 

@@ -5,6 +5,8 @@
 // with a link preview. Dormant unless both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 // are set.
 
+import { botToken, DEFAULT_BOT, type BotId } from "./bots";
+
 function chatIds(): string[] {
   return (process.env.TELEGRAM_CHAT_ID || "")
     .split(",")
@@ -12,8 +14,8 @@ function chatIds(): string[] {
     .filter(Boolean);
 }
 
-export function telegramEnabled(): boolean {
-  return !!process.env.TELEGRAM_BOT_TOKEN && chatIds().length > 0;
+export function telegramEnabled(bot: BotId = DEFAULT_BOT): boolean {
+  return Boolean(botToken(bot)) && chatIds().length > 0;
 }
 
 async function sendOne(token: string, chatId: string, text: string, photoUrl?: string): Promise<boolean> {
@@ -58,8 +60,9 @@ export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
   opts: { parseMode?: "HTML" | "Markdown"; disablePreview?: boolean; replyTo?: number; photoUrl?: string; buttons?: TgButtons; forceReplyPlaceholder?: string } = {},
+  bot: BotId = DEFAULT_BOT,
 ): Promise<SendResult> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = botToken(bot);
   if (!token) return { ok: false };
   // With a photo, the text rides as the caption (Telegram caps captions at 1024
   // chars — command replies are well under). Telegram fetches the URL itself.
@@ -97,8 +100,9 @@ export async function editTelegramMessage(
   messageId: number,
   text: string,
   opts: { parseMode?: "HTML"; buttons?: TgButtons } = {},
+  bot: BotId = DEFAULT_BOT,
 ): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = botToken(bot);
   if (!token) return false;
   const body: Record<string, unknown> = { chat_id: chatId, message_id: messageId, text, disable_web_page_preview: true };
   if (opts.parseMode) body.parse_mode = opts.parseMode;
@@ -117,8 +121,8 @@ export async function editTelegramMessage(
 }
 
 /** ack a button tap (stops the spinner; optional toast) */
-export async function answerCallback(callbackQueryId: string, text?: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+export async function answerCallback(callbackQueryId: string, text?: string, bot: BotId = DEFAULT_BOT): Promise<void> {
+  const token = botToken(bot);
   if (!token) return;
   try {
     await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
@@ -139,8 +143,9 @@ export async function editTelegramPhoto(
   photoUrl: string,
   caption: string,
   opts: { parseMode?: "HTML"; buttons?: TgButtons } = {},
+  bot: BotId = DEFAULT_BOT,
 ): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = botToken(bot);
   if (!token) return false;
   const body: Record<string, unknown> = {
     chat_id: chatId,
@@ -162,8 +167,8 @@ export async function editTelegramPhoto(
 }
 
 /** best-effort delete (repost-at-bottom flow); needs delete rights, fails quietly */
-export async function deleteTelegramMessage(chatId: string | number, messageId: number): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+export async function deleteTelegramMessage(chatId: string | number, messageId: number, bot: BotId = DEFAULT_BOT): Promise<void> {
+  const token = botToken(bot);
   if (!token) return;
   try {
     await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
@@ -176,8 +181,8 @@ export async function deleteTelegramMessage(chatId: string | number, messageId: 
   }
 }
 
-export async function postTelegram(text: string, photoUrl?: string): Promise<{ ok: boolean; detail?: string }> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+export async function postTelegram(text: string, photoUrl?: string, bot: BotId = DEFAULT_BOT): Promise<{ ok: boolean; detail?: string }> {
+  const token = botToken(bot);
   const ids = chatIds();
   if (!token || !ids.length) return { ok: false, detail: "not configured" };
   const results = await Promise.all(ids.map((id) => sendOne(token, id, text, photoUrl)));

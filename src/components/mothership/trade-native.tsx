@@ -227,7 +227,7 @@ export function TradeNativePanel() {
       setError(
         msg.includes("insufficient funds")
           ? "Not enough ETH for this size plus gas."
-          : "This swap would revert — try a smaller size or higher slippage.",
+          : "This swap would revert. Try a smaller size or higher slippage.",
       );
     }
   }, [wallet, account, amountInWei, minOut, quote]);
@@ -266,7 +266,7 @@ export function TradeNativePanel() {
     } catch (e) {
       setPhase("idle");
       const msg = e instanceof Error ? e.message : String(e);
-      setError(msg.includes("user rejected") || msg.includes("denied") ? null : "Transaction failed — nothing was taken beyond gas.");
+      setError(msg.includes("user rejected") || msg.includes("denied") ? null : "Transaction failed. Nothing was taken beyond gas.");
     }
   }, [wallet, account, amountInWei, minOut, refreshBalances]);
 
@@ -483,7 +483,7 @@ export function TradeNativePanel() {
                     Sell on Uniswap ↗
                   </a>
                   <p className="mt-2 text-center text-[11px] text-slate-500">
-                    Native selling lands here soon — same pool, same fees, via Uniswap for now.
+                    Native selling lands here soon: same pool, same fees, via Uniswap for now.
                   </p>
                 </div>
               ) : !account ? (
@@ -570,7 +570,7 @@ export function TradeNativePanel() {
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
-              Fee routing is enforced by the token&apos;s own hook contract, not by anyone&apos;s promise — verify it on the{" "}
+              Fee routing is enforced by the token&apos;s own hook contract, not by anyone&apos;s promise. Verify it on the{" "}
               <Link href="/contracts" className="underline underline-offset-2 hover:text-slate-300">
                 contracts page
               </Link>
@@ -709,14 +709,14 @@ export function TradeNativePanel() {
                     Ξ{result.feeEth.toLocaleString("en-US", { maximumFractionDigits: 6 })}
                   </div>
                   <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                    to PRISM holders — read from your own transaction&apos;s fee event. Every trade does this, and as a
+                    to PRISM holders, read from your own transaction&apos;s fee event. Every trade does this, and as a
                     holder that now includes you.
                   </div>
                 </div>
               )}
 
               <p className="mt-4 text-[10px] leading-relaxed text-slate-600">
-                Holder revenue tracks third-party trading, varies, and can be zero — not a yield or a promise.
+                Holder revenue tracks third-party trading, varies, and can be zero. Not a yield or a promise.
               </p>
 
               <div className="mt-6 flex w-full gap-3">

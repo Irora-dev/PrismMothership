@@ -13,7 +13,7 @@ const PLATFORMS = new Set(["netlify", "vercel", "cloudflare", "other"]);
 
 export async function POST(req: NextRequest) {
   if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "setup apply is dev-only — set env vars in your host's dashboard" }, { status: 403 });
+    return NextResponse.json({ error: "setup apply is dev-only. Set env vars in your host's dashboard" }, { status: 403 });
   }
   const body = (await req.json().catch(() => null)) as {
     siteUrl?: string;

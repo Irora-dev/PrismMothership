@@ -190,7 +190,7 @@ export function EventDetailModal({
     const tag = sym ? ` ($${sym})` : "";
     const line =
       e.kind === "launch"
-        ? `A new basket has been deployed on Spectrum — ${name}${tag}.`
+        ? `A new basket has been deployed on Spectrum · ${name}${tag}.`
         : e.kind === "fee"
           ? `${name}${tag} just traded on Spectrum. Every fee feeds the PRISM burn.`
           : burnHit

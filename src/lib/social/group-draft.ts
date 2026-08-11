@@ -4,12 +4,12 @@
 // create page. Netlify-Blobs backed (fail-open: no Blobs locally → no persistence,
 // so the stateful flow is exercised in prod). The bot never signs.
 
-import type { TokenMatch } from "./token-validate";
+import type { TokenMatch, BasketChain } from "./token-validate";
 
 export interface DraftToken {
   symbol: string;
   address: string;
-  chain: "ethereum" | "base";
+  chain: BasketChain;
   liquidityUsd: number;
   by: number; // proposer user id
   byName?: string; // proposer display name
@@ -61,13 +61,13 @@ async function save(chatId: number | string, d: Draft): Promise<void> {
   }
 }
 
-export const draftChain = (d: Draft): "ethereum" | "base" | null => (d.tokens[0]?.chain ?? null);
+export const draftChain = (d: Draft): BasketChain | null => (d.tokens[0]?.chain ?? null);
 
 export type ProposeStatus = "added" | "dupe" | "chain" | "full";
 export interface ProposeResult {
   status: ProposeStatus;
   draft: Draft;
-  lockedChain?: "ethereum" | "base"; // set on a "chain" conflict
+  lockedChain?: BasketChain; // set on a "chain" conflict
 }
 
 // Add a validated token to the group's draft. Enforces one chain (first token

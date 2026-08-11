@@ -290,7 +290,7 @@ export function TelemetryPanel() {
               )}
             </h1>
             <p className="mt-1 text-sm text-slate-400">
-              The ecosystem over time — launches, trading, burns and PRISM revenue, read straight from the chain.
+              The ecosystem over time: launches, trading, burns and PRISM revenue, read straight from the chain.
             </p>
           </div>
 
@@ -607,7 +607,7 @@ export function TelemetryPanel() {
         <p className="max-w-2xl text-[11px] leading-relaxed text-slate-600">
           Series are aggregated from public on-chain logs and bucketed by estimated block time; the final bucket is
           still in progress, and figures are approximate and may be delayed. Where a window reaches past available
-          history, &ldquo;/yr pace&rdquo; is that metric annualized from the covered days shown — an extrapolation of
+          history, &ldquo;/yr pace&rdquo; is that metric annualized from the covered days shown, an extrapolation of
           recent activity, not a measurement or a forecast. Nothing here is investment advice.
         </p>
     </section>

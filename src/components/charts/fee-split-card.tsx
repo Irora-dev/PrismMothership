@@ -45,7 +45,7 @@ export function FeeSplitCard({
             className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-[330px] rounded-xl border border-white/10 bg-[#15151c] px-4 py-3.5 text-left text-[13.5px] font-normal leading-relaxed text-slate-200 opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tip:opacity-100 group-focus/tip:opacity-100"
           >
             Every basket fee splits on-chain: a fixed 10% buys &amp; burns PRISM, and holders are
-            guaranteed at least 70% of the remainder — creators and integrator interfaces share the rest.
+            guaranteed at least 70% of the remainder. Creators and integrator interfaces share the rest.
             Baskets on Robinhood Chain also route 5% off the top into the creator-league prize pool.
           </span>
         </span>

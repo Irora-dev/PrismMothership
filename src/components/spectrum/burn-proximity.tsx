@@ -121,7 +121,7 @@ export function BurnProximitySection() {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[13px] text-slate-300">
         <span className="font-semibold text-slate-100">Awaiting the launch factory.</span> Every basket lights up here
-        the moment the Spectrum V2 factory address is wired — each one&apos;s accrued fees are tracked live against the
+        the moment the Spectrum V2 factory address is wired. Each one&apos;s accrued fees are tracked live against the
         fixed <span className="font-mono">0.3 ETH</span> burn threshold, and new baskets self-register.
       </div>
     );
@@ -187,7 +187,7 @@ export function BurnProximitySection() {
         </div>
       ) : (
         <div className="mt-5 text-center text-slate-500 font-mono text-[13px]">
-          Factory wired — no baskets launched yet. The first launch appears here automatically.
+          Factory wired, no baskets launched yet. The first launch appears here automatically.
         </div>
       )}
     </>

@@ -14,7 +14,7 @@ import { C, MONO, glass, glow } from "@/components/mothership/style";
 const PLATFORMS = [
   { id: "netlify", name: "Netlify", note: "netlify.toml ships in the repo. Connect the repo, add the env vars in Site settings, deploy." },
   { id: "vercel", name: "Vercel", note: "vercel.json ships in the repo. Import the repo, add the env vars in Project settings, deploy." },
-  { id: "cloudflare", name: "Cloudflare", note: "Workers via OpenNext — docs/HOSTING.md has the commands. Env vars become Worker secrets." },
+  { id: "cloudflare", name: "Cloudflare", note: "Workers via OpenNext · docs/HOSTING.md has the commands. Env vars become Worker secrets." },
   { id: "other", name: "Other / self-host", note: "Anything that runs `next build && next start` behind a proxy." },
 ] as const;
 
@@ -98,7 +98,7 @@ export function SetupStudio() {
               className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-white/25"
               style={{ fontFamily: MONO }}
             />
-            {!urlOk && siteUrl && <p className="mt-2 text-[11px] text-amber-300">Include the scheme — https://…</p>}
+            {!urlOk && siteUrl && <p className="mt-2 text-[11px] text-amber-300">Include the scheme, https://…</p>}
           </div>
 
           <div className="rounded-2xl p-5" style={{ ...glass, borderTop: `2px solid ${C.purple}80` }}>
@@ -156,7 +156,7 @@ export function SetupStudio() {
             </button>
             {state === "done" && (
               <span className="text-sm font-semibold" style={{ color: C.green, ...glow(C.green) }}>
-                Written: site.config.json + .env.local — run `npm run doctor` next.
+                Written: site.config.json + .env.local · run `npm run doctor` next.
               </span>
             )}
             {state === "error" && <span className="text-sm text-red-300">✖ {msg}</span>}
@@ -173,7 +173,7 @@ export function SetupStudio() {
 
           <p className="text-[11px] leading-relaxed text-slate-600">
             The chain wiring (PRISM token, pools, factories) ships canonical with the kit and is not editable
-            here — integrators configure hosting, not contracts. Full runbook: START-HERE.md.
+            here: integrators configure hosting, not contracts. Full runbook: START-HERE.md.
           </p>
         </div>
       </main>

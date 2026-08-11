@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mintSiteLink } from "@/lib/social/dm-portfolio";
+import { botUsername } from "@/lib/social/bots";
 
 // Mint a deep link for a visitor whose wallet is already connected here (or on
 // the Spectrum operator site). They tap it, Telegram opens, their book is on
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   const address = (body.address || "").trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return NextResponse.json({ ok: false, error: "invalid address" }, { status: 400, headers });
   const code = await mintSiteLink(address);
-  const bot = process.env.TELEGRAM_BOT_USERNAME || "SpectraPrismBot";
+  // the portfolio surface lives on the Spectrum bot, so the deep link must open
+  // that one and not the Prism community helper
+  const bot = botUsername("spectrum");
   return NextResponse.json({ ok: true, code, url: `https://t.me/${bot}?start=w_${code}` }, { headers });
 }

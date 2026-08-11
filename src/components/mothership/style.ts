@@ -71,7 +71,7 @@ export const APPS: MothershipApp[] = [
     name: "Spectrum Baskets",
     tagline: "One token, a whole thesis",
     blurb:
-      "Launch and trade basket tokens on Ethereum, Base & Robinhood Chain. Every basket fee splits on-chain — a fixed 10% buys and burns PRISM.",
+      "Launch and trade basket tokens on Ethereum, Base & Robinhood Chain. Every basket fee splits on-chain, a fixed 10% buys and burns PRISM.",
     href: "https://spectrumindexes.xyz",
     external: true,
     color: C.purple,
@@ -85,7 +85,7 @@ export const APPS: MothershipApp[] = [
     name: "Spectrum Portfolio",
     tagline: "A whole portfolio in one buy",
     blurb:
-      "Batched execution across baskets and tokens in a single transaction, with a flat fee that buys and burns PRISM. Built and audited — launching soon.",
+      "Batched execution across baskets and tokens in a single transaction, with a flat fee that buys and burns PRISM. Built and audited. Launching soon.",
     color: C.orange,
     status: "Launching soon",
   },

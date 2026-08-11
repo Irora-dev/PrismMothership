@@ -99,16 +99,16 @@ export async function resolveSafely(query: string, chain?: "ethereum" | "base"):
     rivals = all.filter((x) => x.address !== match.address.toLowerCase());
     if (rivals.length) {
       warnings.push(
-        `${rivals.length} other token${rivals.length === 1 ? "" : "s"} use the ticker $${match.symbol} — this is the deepest pool, not necessarily the one you mean. Check the address.`,
+        `${rivals.length} other token${rivals.length === 1 ? "" : "s"} use the ticker $${match.symbol}. This is the deepest pool, not necessarily the one you mean. Check the address.`,
       );
     }
     if (dominance < WEAK_DOMINANCE && rivals.length) {
-      warnings.push("The rival pools are close in size — confirm the contract address before sending anything.");
+      warnings.push("The rival pools are close in size. Confirm the contract address before sending anything.");
     }
   }
 
   if (match.liquidityUsd < LOW_LIQUIDITY_USD) {
-    warnings.push(`Thin liquidity (${Math.round(match.liquidityUsd).toLocaleString("en-US")} USD) — expect slippage, and a small sell can move the price a lot.`);
+    warnings.push(`Thin liquidity (${Math.round(match.liquidityUsd).toLocaleString("en-US")} USD). Expect slippage, and a small sell can move the price a lot.`);
   }
 
   return { match, rivals, dominance, warnings, exact: isAddress };
@@ -124,10 +124,10 @@ export function checkAmountUsd(raw: string | number, bookUsd?: number): AmountCh
   if (!Number.isFinite(n)) return { ok: false, reason: "That amount isn't a number." };
   if (n <= 0) return { ok: false, reason: "The amount has to be more than zero." };
   if (n < 1) return { ok: false, reason: "Below $1 the fees cost more than the trade." };
-  if (n > 10_000_000) return { ok: false, reason: "That's beyond what I'll price — check the number." };
+  if (n > 10_000_000) return { ok: false, reason: "That's beyond what I'll price. Check the number." };
   // a size far beyond the book is usually a typo (100000 for 1000)
   if (bookUsd && bookUsd > 0 && n > bookUsd * 50) {
-    return { ok: false, reason: `That's ${Math.round(n / bookUsd)}× your whole book — check the number.` };
+    return { ok: false, reason: `That's ${Math.round(n / bookUsd)}× your whole book. Check the number.` };
   }
   return { ok: true };
 }

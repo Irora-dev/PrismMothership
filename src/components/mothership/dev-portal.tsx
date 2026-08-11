@@ -181,7 +181,7 @@ export function DevPortal() {
             </div>
             <h3 className="mt-2 text-xl font-bold tracking-tight text-white">Build with Spectrum&apos;s components</h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Bento grids, live charts, trade flows — open-source building blocks for your own PRISM product.
+              Bento grids, live charts, trade flows: open-source building blocks for your own PRISM product.
             </p>
             <div className="relative mt-4 h-[132px] overflow-hidden rounded-xl border border-white/5" style={{ background: "rgba(3,4,9,0.5)" }}>
               {bento ? (
@@ -237,7 +237,7 @@ export function DevPortal() {
                 Earn
               </div>
               <p className="mt-2 text-[14px] leading-relaxed text-slate-300">
-                Route trades from your app — the contract pays your address <span className="font-bold text-white">5.55%</span> of every fee.
+                Route trades from your app and the contract pays your address <span className="font-bold text-white">5.55%</span> of every fee.
               </p>
               <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
                 <span style={{ width: "78.9%", background: "rgba(148,163,184,0.45)" }} />
@@ -258,7 +258,7 @@ export function DevPortal() {
                 Accrue
               </div>
               <p className="mt-2 text-[14px] leading-relaxed text-slate-300">
-                Send a revenue share through the burner — it buys PRISM and <span className="font-bold text-white">burns it</span>.
+                Send a revenue share through the burner. It buys PRISM and <span className="font-bold text-white">burns it</span>.
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-white/5 px-3 py-2.5" style={{ background: "rgba(3,4,9,0.6)" }}>
                 {["your fees", "burner", "buys PRISM", "0x…dEaD 🔥"].map((step, i) => (
@@ -307,7 +307,7 @@ export function DevPortal() {
       <section className="overflow-hidden rounded-2xl border border-white/10" style={{ background: "rgba(3,4,9,0.8)" }}>
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
           <span className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: TERM_GREEN, fontFamily: MONO }}>
-            prism — bash
+            prism · bash
           </span>
           <span className="flex items-center gap-3">
             <CopyBtn text={TERMINAL_RAW} label="Copy curls" />
@@ -319,7 +319,7 @@ export function DevPortal() {
           </span>
         </div>
         <pre className="overflow-x-auto p-5 text-[12.5px] leading-relaxed" style={{ fontFamily: MONO, color: "#cbd5e1" }}>
-          <span className="text-slate-600"># public JSON, no key — the same data this site runs on</span>
+          <span className="text-slate-600"># public JSON, no key · the same data this site runs on</span>
           {"\n"}
           <span style={{ color: TERM_GREEN }}>$</span> curl /api/feed <span className="text-slate-600"># live events + stats</span>
           {"\n"}

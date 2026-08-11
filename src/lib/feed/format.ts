@@ -125,6 +125,10 @@ export function fmtUsd(n?: number): string {
 export function fmtUsdFull(n?: number): string {
   if (n == null || !isFinite(n)) return "—";
   if (n === 0) return "$0";
+  // sub-cent values kept 2 significant figures instead of rounding to "$0.00":
+  // a dust basket's AUM on the leaderboard was the exact lie the surface gate
+  // exists to catch, and toFixed(2) told it everywhere this formatter is used
+  if (n < 0.01) return `$${n.toFixed(Math.min(12, 1 - Math.floor(Math.log10(n)))).replace(/0+$/, "")}`;
   if (n < 1) return `$${n.toFixed(2)}`;
   return `$${Math.round(n).toLocaleString("en-US")}`;
 }

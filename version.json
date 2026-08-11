@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.39",
-  "note": "Onboarding, three ways in. Arriving from the site: connect a wallet there, tap Open in Telegram, and your book is on the first screen. Cold in a DM: one card, one question, two buttons. Met in a group: the bot answers the room and offers a private chat as a button rather than a paragraph.",
+  "version": "2026.08.03.40",
+  "note": "The top bar sheds its wordmark: the mark and the blinking SYSTEM ONLINE carry the identity, and the bar sits lower on every page. Group basket creation now works on Robinhood, where the live baskets are, and an ambiguous ticker says which other chains it trades on. The create handoff names chains by their canonical key. Sub-cent figures show real digits instead of $0.00.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

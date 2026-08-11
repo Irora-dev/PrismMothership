@@ -345,7 +345,7 @@ export function TradePanel() {
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
-              Fee routing is enforced by the token&apos;s own hook contract, not by anyone&apos;s promise — verify it on the{" "}
+              Fee routing is enforced by the token&apos;s own hook contract, not by anyone&apos;s promise. Verify it on the{" "}
               <Link href="/contracts" className="underline underline-offset-2 hover:text-slate-300">
                 contracts page
               </Link>

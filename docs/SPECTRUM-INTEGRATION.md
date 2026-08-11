@@ -1,5 +1,64 @@
 # Bot ⇄ Spectrum site — the integration contract
 
+## Two bots, not one *(ruled by the designer, 2026-08-07)*
+
+There are **two Telegram bots**, because they are two products:
+
+| | **Prism bot** | **Spectrum bot** |
+|---|---|---|
+| what it is | a helper for the Prism community | part of the Spectrum suite |
+| what it does | keeps the room and its DMs up to date with the ecosystem: price, supply, burn, revenue, links | baskets, group drafting and launching, watchlists, the league, and the private portfolio surface |
+| webhook | `/api/telegram/webhook` | `/api/telegram/spectrum` |
+| token · username · secret | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_BOT_USERNAME` · `TELEGRAM_WEBHOOK_SECRET` | `SPECTRUM_BOT_TOKEN` · `SPECTRUM_BOT_USERNAME` · `SPECTRUM_WEBHOOK_SECRET` |
+| brand on its cards | the Prism pixel mark | the Spectrum wordmark |
+| menu | `node scripts/telegram-commands.mjs --bot prism` | `… --bot spectrum` |
+
+### Where they are hosted *(corrected by the designer, 2026-08-07)*
+
+**We do not host these sites; the community member does.** The intended homes:
+
+| | serves the site | serves the bot's webhook | status |
+|---|---|---|---|
+| Prism bot | `prismmothership.xyz` (community) | there today; `prismmothership.com` (ours) is an option | live |
+| Spectrum bot | `spectrumindexes.xyz` (community) | **not possible there yet, see below** | held back |
+
+⚠️ **`spectrumindexes.xyz` cannot serve a webhook as it stands.** Probed 2026-08-07:
+it is a pure Vite SPA with a catch-all redirect, so *every* path returns
+`index.html` with a 200, including `/api/feed` and `/.netlify/functions/`. The
+Spectrum kit ships no `netlify/functions` directory, only one OG edge function.
+A Telegram webhook needs a real POST endpoint, so putting the bot's *endpoint*
+there means adding serverless functions to that kit and porting the handlers, the
+Blobs-backed stores and the Satori card renderer into it.
+
+Worth separating two readings of "under the Spectrum site", because they differ by
+an order of magnitude in cost:
+
+- **Users perceive it as a Spectrum product.** Already true and needs nothing: the
+  @handle, name, menu and card branding are all Spectrum. A webhook URL is
+  invisible to users.
+- **The HTTP endpoint physically lives on that domain.** A port of the whole bot
+  backend into a repo that currently has no backend.
+
+🔒 **The split ships DORMANT.** the designer: the Spectrum bot stays private until we are
+ready, and must not go out with the next Spectrum update. With
+`SPECTRUM_BOT_TOKEN` unset the live bot behaves exactly as the single bot did and
+**nothing anywhere names a Spectrum bot** (asserted by gate ④c-4). Arming is the
+presence of that one env var. See `splitArmed()` in `src/lib/social/bots.ts`.
+
+Both run from **one** deployment, because a bot is only an HTTPS endpoint, and
+both share every handler, store and card renderer. Only identity differs: a
+token, a username, a menu, a brand, and a command set. The partition lives in
+`src/lib/social/bots.ts` and is **enforced at dispatch**, so a command answers
+only on the bot that owns it. On the other bot it says where it lives rather than
+playing dumb, and if that bot has no token yet it says that instead of pointing
+at a dead handle. With `SPECTRUM_BOT_TOKEN` unset the whole Spectrum surface
+stays dark, so the split ships safe.
+
+Everything below is about the **Spectrum bot's** relationship with the operator
+site; the Prism bot has no seam with it at all.
+
+---
+
 The Telegram bot and its cards run on **the Mothership deployment** (this kit —
 e.g. `prismmothership.xyz`). Basket **execution** — choosing weights, naming,
 signing — lives on **the Spectrum operator site** (`spectrumindexes.xyz`), a
@@ -8,27 +67,56 @@ different origin and a different repo.
 Nothing here is a shared database. The two sides meet in exactly three places,
 and each one degrades honestly if the other end isn't built yet.
 
-## 1. Handoff — bot → Spectrum (needed; the flow 404s without it)
+**See it running:** `/dev/telegram` (dev only) has a **Seam map** panel on the
+right. It renders `src/lib/social/seams.ts` — the machine-readable version of
+this document — with the live wiring state read from the deployment's own env, so
+an unwired seam says `unwired` instead of reading as finished. Underneath it,
+every link the bot hands out during a session is logged and attributed to the
+side that has to serve it. This document explains *why* each seam is shaped the
+way it is; that panel is *what is true right now*. Add a seam to `seams.ts` and a
+section here at the same time.
+
+## 1. Handoff · bot → Spectrum (built and verified; needs one env var)
 
 Every "make it real" path (`/launch`, `/createbasket`, `/split`, `/reweight`)
 ends at one URL:
 
 ```
-${SPECTRUM_CREATE_URL}?tokens=0xAAA…,0xBBB…&chain=eth|base
+${SPECTRUM_CREATE_URL}?tokens=0xAAA…,0xBBB…&chain=eth|base[&weights=60,40]
 ```
 
-- `SPECTRUM_CREATE_URL` is set in the bot deployment's env and **must** point at
-  the operator create page. Unset, the bot does not invent a URL — it says the
-  operator hasn't wired the create page yet, and shows the composition anyway.
-  (It used to default to `{site}/createbasket`, which this kit doesn't serve;
-  the surface gate caught the 404.)
+**Verified end to end on 2026-08-07**, by following a real `/split` link from the
+bot into a running Composer: the assets seed with live logos and a backtest, the
+chain switches, and the launch flow opens prefilled. Two things that verification
+found, both now fixed:
+
+- **The create page already exists.** It is `/createbasket` in the **Spectrum kit**
+  (`app/src/pages/Composer.tsx`), not a page anyone still needs to build. What was
+  missing was only the env var pointing at it. Set `SPECTRUM_CREATE_URL` to the
+  operator's own kit deployment, e.g. `https://<their-domain>/createbasket`.
+- 🔴 **`weights` did not exist, and the split was being silently discarded.** The bot
+  said "60% PEPE, 40% MOG" and the create page seeded 50/50, because only
+  `tokens` and `chain` crossed the seam. Both sides now carry `weights`.
+
+- `SPECTRUM_CREATE_URL` is set in the bot deployment's env and points at the
+  operator's create page. Unset, the bot invents no URL: it says this operator
+  has not pointed it at their create page yet, and shows the composition anyway.
+  (It used to default to `{site}/createbasket`, which the *Mothership* does not
+  serve; the surface gate caught that 404. The page lives in the Spectrum kit.)
 - `tokens` — comma-separated addresses, already validated by the bot (real,
   tradeable, liquid, all on one chain).
-- `chain` — `eth` or `base`. Baskets are single-chain at the contract level.
+- `chain` — `eth` or `base`. Baskets are single-chain at the contract level. The
+  Composer also accepts `ethereum`, `mainnet`, or a numeric chain id.
+- `weights` — **optional**, comma-separated, positionally aligned to `tokens`, and
+  normalised to 100 on arrival. Sent whenever the group actually agreed a split
+  (`/split`); omitted otherwise, which the Composer reads as equal weight. If a
+  token is dropped for not being tradeable on the chain, the Composer falls back
+  to equal weight across the survivors rather than applying a partial split, and
+  says which token it skipped.
 
-**Ask of the Spectrum side:** read those two params and prefill the composer —
-ideally equal weights — so the group's tap lands on a nearly-signed basket.
-Optional but useful: accept `&ref=tg` and count it, so the funnel is measurable.
+**Nothing further is asked of the Spectrum side for this seam.** It is built and
+verified. The one outstanding nice-to-have is `&ref=tg&draft=<id>` echo, which
+turns launch attribution from inferred into exact (see §3).
 
 ## 2. Wallet linking — either surface (built, cross-origin ready)
 

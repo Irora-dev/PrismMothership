@@ -42,7 +42,7 @@ export function LinkClient({ code }: { code: string }) {
         }
       })
       .catch(() => {
-        setError("network trouble — try the link again");
+        setError("network trouble, try the link again");
         setState("error");
       });
   }, [account, code, state]);
@@ -102,13 +102,13 @@ export function LinkClient({ code }: { code: string }) {
           ) : state === "error" ? (
             <>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-white">That link expired</h1>
-              <p className="mt-3 text-sm leading-relaxed text-slate-400">{error} — send <code className="text-slate-300">/link</code> to the bot again for a fresh one.</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-400">{error}. Send <code className="text-slate-300">/link</code> to the bot again for a fresh one.</p>
             </>
           ) : (
             <>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-white">Link your wallet to Telegram</h1>
               <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                Connect the wallet you already use here. Your Telegram DM can then show its positions — <b className="text-slate-300">read-only</b>, no signature, no approval, nothing granted.
+                Connect the wallet you already use here. Your Telegram DM can then show its positions. <b className="text-slate-300">read-only</b>, no signature, no approval, nothing granted.
               </p>
               <div className="mt-6 flex items-center gap-4">
                 <button

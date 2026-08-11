@@ -8,7 +8,7 @@ import { TelemetryPanel } from "@/components/mothership/telemetry";
 // this page shows it, every figure live chain data.
 
 export const metadata: Metadata = {
-  title: "Command deck — The Prism Mothership",
+  title: "Command deck · The Prism Mothership",
   description:
     "The Prism ecosystem's live command deck: revenue to holders, PRISM burns, basket activity and every on-chain event as it lands.",
 };

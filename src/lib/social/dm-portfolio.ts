@@ -309,6 +309,10 @@ export interface AlertState {
   dayStamp: string; // YYYY-MM-DD, resets the daily count
   lastByAsset: Record<string, number>; // address → ms of last alert
   lastClaimNudge?: number;
+  /** USD value at the last claim nudge. Optional so older stored blobs parse.
+   *  Claimable fees are a standing balance, so the nudge remembers the LEVEL it
+   *  fired at and stays quiet until it grows materially past it. */
+  claimNudgedUsd?: number;
 }
 export const DEFAULT_PREFS: AlertPrefs = { on: true, minPct: 12, minUsd: 25, maxPerDay: 3 };
 const ASSET_COOLDOWN_MS = 12 * 3_600_000;

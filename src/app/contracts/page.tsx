@@ -74,15 +74,15 @@ const CONTRACTS: ContractRow[] = [
       { chain: "base", address: "0xa60ce83A4048f2157A65d596002541311D694E5D", explorer: "https://basescan.org/address/0xa60ce83A4048f2157A65d596002541311D694E5D", verifiedHref: "https://basescan.org/address/0xa60ce83A4048f2157A65d596002541311D694E5D#code" },
       { chain: "robinhood", address: "0x07Bfce0976b205FcfDF115F7aD1401Ab1f197e6f", explorer: "https://robinhoodchain.blockscout.com/address/0x07Bfce0976b205FcfDF115F7aD1401Ab1f197e6f", verifiedHref: "https://robinhoodchain.blockscout.com/address/0x07Bfce0976b205FcfDF115F7aD1401Ab1f197e6f#code" },
     ],
-    tag: "Launches baskets on Ethereum, Base & Robinhood Chain — no admin, flat 0.003 ETH fee, fees burned",
-    note: "⚠️ Check the chain before you check the address. This launch deployed from one account at matching nonces, so the SAME address is a DIFFERENT contract on different chains — 0x4d35…0486 is the factory on Ethereum but the swap router on Robinhood Chain. Every address below is labelled with its chain; looking one up on the wrong explorer will show you the wrong contract.",
+    tag: "Launches baskets on Ethereum, Base & Robinhood Chain · no admin, flat 0.003 ETH fee, fees burned",
+    note: "⚠️ Check the chain before you check the address. This launch deployed from one account at matching nonces, so the SAME address is a DIFFERENT contract on different chains. 0x4d35…0486 is the factory on Ethereum but the swap router on Robinhood Chain. Every address below is labelled with its chain; looking one up on the wrong explorer will show you the wrong contract.",
     points: [
       {
-        title: "No admin anywhere — probed, not promised",
+        title: "No admin anywhere · probed, not promised",
         line: "16 admin-shaped functions were called on all three factories. Every one reverts or does not exist.",
         keywords: ["factory", "admin", "owner", "spectrum", "control", "shut", "down", "stop", "rug", "pause", "upgrade"],
         code: {
-          source: "reproduce it yourself — every one of these reverts, on all three chains",
+          source: "reproduce it yourself · every one of these reverts, on all three chains",
           body: `$ cast call 0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486 "owner()"      # ethereum
 $ cast call 0xa60ce83A4048f2157A65d596002541311D694E5D "owner()"      # base
 $ cast call 0x07Bfce0976b205FcfDF115F7aD1401Ab1f197e6f "owner()"      # robinhood
@@ -102,20 +102,20 @@ $ cast storage 0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486 \\
       },
       {
         title: "Anyone can launch, and the price is fixed at 0.003 ETH",
-        line: "One flat fee from the first block — identical on all three chains, with no auction and no way to change it.",
+        line: "One flat fee from the first block, identical on all three chains, with no auction and no way to change it.",
         keywords: ["launch", "deploy", "cost", "price", "fee", "permissionless", "who", "can", "basket", "create", "auction"],
         code: {
-          source: "read the price off the chain yourself — no allowlist, no admin gate",
+          source: "read the price off the chain yourself · no allowlist, no admin gate",
           body: `$ cast call 0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486 "LAUNCH_FEE_WEI()"
 3000000000000000            # 0.003 ETH
 $ cast call 0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486 "currentDeployPrice()"
-3000000000000000            # 0.003 ETH — the same, on all three chains
+3000000000000000            # 0.003 ETH, the same on all three chains
 
 # LAUNCH_FEE_WEI is a constant, and no setter for it exists (see the
 # admin probe above). The price you are quoted is the price everyone pays.
 
 # NOTE: an earlier design auctioned launch slots between 1 ETH and a
-# 0.1 ETH floor. That is NOT this deployment — those constants are
+# 0.1 ETH floor. That is NOT this deployment. Those constants are
 # absent from the live contracts:
 $ cast call 0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486 "AUCTION_FLOOR()"
 Error: execution reverted`,
@@ -123,7 +123,7 @@ Error: execution reverted`,
       },
       {
         title: "Launch fees are burned, not kept",
-        line: "The factory names its own burn destination on-chain — and it is the PRISM burner below, not a team wallet.",
+        line: "The factory names its own burn destination on-chain, and it is the PRISM burner below, not a team wallet.",
         keywords: ["launch", "fees", "proceeds", "burn", "keep", "team", "money", "goes", "where", "treasury"],
         code: {
           source: "ask the factory where the money goes",
@@ -139,7 +139,7 @@ Error: execution reverted`,
       },
       {
         title: "Every basket's fee split is a constant",
-        line: "10% burned, 5.55% interface, 5.55% launcher, creator capped at 30% — read off a real live basket.",
+        line: "10% burned, 5.55% interface, 5.55% launcher, creator capped at 30%, read off a real live basket.",
         keywords: ["fees", "split", "fee", "change", "setfee", "constant", "holders", "creator", "cut", "take"],
         code: {
           source: "read from the first basket launched by this factory, not from a document",
@@ -151,16 +151,16 @@ $ cast call <basket> "owner()"
 Error: execution reverted                      # baskets have no owner either
 
 # Everything not in those slices belongs to holders. They are constants
-# in the basket's own code — there is no function that can change any of
+# in the basket's own code. There is no function that can change any of
 # them after launch, on any basket, by anyone.`,
         },
       },
       {
         title: "You can always exit",
-        line: "redeemInKind hands you the underlying tokens directly — no pool, no admin, no permission needed.",
+        line: "redeemInKind hands you the underlying tokens directly: no pool, no admin, no permission needed.",
         keywords: ["exit", "redeem", "withdraw", "trapped", "locked", "sell", "get", "out", "liquidity"],
         code: {
-          source: "src/SpectrumBasket.sol — redeemInKind, verbatim",
+          source: "src/SpectrumBasket.sol · redeemInKind, verbatim",
           body: `function redeemInKind(uint256 amount, bool[] calldata legMask, address to)
     external nonReentrant
 {
@@ -184,15 +184,15 @@ Error: execution reverted                      # baskets have no owner either
       { chain: "base", address: "0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6", explorer: "https://basescan.org/address/0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6", verifiedHref: "https://basescan.org/address/0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6#code" },
       { chain: "robinhood", address: "0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486", explorer: "https://robinhoodchain.blockscout.com/address/0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486", verifiedHref: "https://robinhoodchain.blockscout.com/address/0x4d3590a5B0aCee04Bb7Ab721B23fDdae8B880486#code" },
     ],
-    tag: "Routes basket swaps through Uniswap V4 — stateless, holds nothing, owns nothing",
+    tag: "Routes basket swaps through Uniswap V4 · stateless, holds nothing, owns nothing",
     note: "⚠️ Chain-specific addresses again: 0x2E39…B4b6 is this router on Base, but on Ethereum the very same address is the PRISM burner. Match the chain label before you look it up.",
     points: [
       {
-        title: "No admin surface — live-probed on all three chains",
+        title: "No admin surface · live-probed on all three chains",
         line: "owner() and paused() revert on every deployment; nothing here can be paused, upgraded or swept.",
         keywords: ["router", "admin", "owner", "swap", "control", "pause", "sweep"],
         code: {
-          source: "src/periphery/SpectrumSwapRouter.sol — the header, verbatim",
+          source: "src/periphery/SpectrumSwapRouter.sol · the header, verbatim",
           body: `• NO ADMIN SURFACE. No owner, pauser, upgrader, fee-setter, or sweep.
 
 contract SpectrumSwapRouter is IUnlockCallback {
@@ -226,8 +226,8 @@ Error: execution reverted        # ← all three`,
     deployments: [
       { chain: "ethereum", address: "0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6", explorer: "https://etherscan.io/address/0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6", verifiedHref: "https://repo.sourcify.dev/1/0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6" },
     ],
-    tag: "Ethereum only — receives every basket's burn leg, buys PRISM and destroys it",
-    note: "This replaced the previous burner on 2026-07-30. The old one hardcoded the exploited v1 PRISM with no owner and no setter, so it could never be pointed at the community relaunch — trustless, but permanently stuck. This one is source-verified; the old one never was.",
+    tag: "Ethereum only · receives every basket's burn leg, buys PRISM and destroys it",
+    note: "This replaced the previous burner on 2026-07-30. The old one hardcoded the exploited v1 PRISM with no owner and no setter, so it could never be pointed at the community relaunch. Trustless, but permanently stuck. This one is source-verified; the old one never was.",
     points: [
       {
         title: "Source-verified, and bound to the token this site reads",
@@ -240,7 +240,7 @@ Error: execution reverted        # ← all three`,
                                              #   every figure on this
                                              #   site is read from
 $ cast code 0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6 | wc -c
-# ~2.8KB — small enough to read end to end in one sitting`,
+# ~2.8KB, small enough to read end to end in one sitting`,
         },
         proof: { label: "Verified source (Sourcify, exact match)", href: "https://repo.sourcify.dev/1/0x2E39Ae825C697BE3e15ACd003d1398287C83D4b6" },
       },
@@ -261,7 +261,7 @@ Error: execution reverted     # no owner, so no privileged withdrawal
         proof: { label: "The dead address on Etherscan", href: "https://etherscan.io/address/0x000000000000000000000000000000000000dEaD" },
       },
       {
-        title: "It has actually run — once, with real value",
+        title: "It has actually run · once, with real value",
         line: "0.05 ETH in, 4.128439854822168758 PRISM destroyed. Before this, the burn path was untested in production.",
         keywords: ["burn", "happened", "real", "proof", "first", "worked", "tested", "flywheel"],
         code: {
@@ -286,14 +286,14 @@ Error: execution reverted     # no owner, so no privileged withdrawal
     deployments: [
       { chain: "robinhood", address: "0xd1B485a0C40fb40fd94aa8dDbA32Ed6DCaDC35Be", explorer: "https://robinhoodchain.blockscout.com/address/0xd1B485a0C40fb40fd94aa8dDbA32Ed6DCaDC35Be", verifiedHref: "https://robinhoodchain.blockscout.com/address/0xd1B485a0C40fb40fd94aa8dDbA32Ed6DCaDC35Be#code" },
     ],
-    tag: "Robinhood Chain only — holds creator-league rewards, and its one privileged call is already spent",
+    tag: "Robinhood Chain only · holds creator-league rewards, and its one privileged call is already spent",
     points: [
       {
         title: "Its single privileged call has been used up",
         line: "seatFactory could be called exactly once, to name the factory. That happened at launch and can never happen again.",
         keywords: ["league", "pool", "seat", "factory", "admin", "once", "privileged", "rewards"],
         code: {
-          source: "check which factory it is bound to — and that it is the live one",
+          source: "check which factory it is bound to, and that it is the live one",
           body: `$ cast call 0xd1B485a0C40fb40fd94aa8dDbA32Ed6DCaDC35Be "factory()" \\
     --rpc-url https://rpc.mainnet.chain.robinhood.com/rpc
 0x07Bfce0976b205FcfDF115F7aD1401Ab1f197e6f   # ← the live Robinhood factory
@@ -561,7 +561,7 @@ function Row({ c, verify, src }: { c: ContractRow; verify: VerifyData | null; sr
                       s?.verified
                         ? `Etherscan reports verified source: ${s.name ?? ""}`
                         : s?.unsupported
-                          ? "Etherscan doesn't cover this chain — these verify on Blockscout/Sourcify instead"
+                          ? "Etherscan doesn't cover this chain, so these verify on Blockscout/Sourcify instead"
                           : "Open the explorer's source tab"
                     }
                   >
@@ -727,7 +727,7 @@ export default function ContractsPage() {
                 hits.map((h) => <PointCard key={`${h.contract.address}-${h.point.title}`} p={h.point} contractName={h.contract.name.replace(/^The /, "")} terms={terms} />)
               ) : (
                 <div className="glass-card p-4 text-[13px] text-slate-500">
-                  Nothing matched that — try one of the suggested questions, or open a contract below and read every point.
+                  Nothing matched that. Try one of the suggested questions, or open a contract below and read every point.
                 </div>
               )}
             </div>

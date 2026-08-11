@@ -62,11 +62,11 @@ function messageFor(e: ActivityEvent): string | null {
   if (e.kind === "launch") {
     const name = e.label || (e.symbol ? `$${e.symbol}` : "A new basket");
     const tag = e.symbol && e.label ? ` ($${e.symbol})` : "";
-    return `🧺 New basket live on Spectrum\n\n${name}${tag} just launched. One token, the whole basket — every trade feeds the PRISM burn.\n\n${link}`;
+    return `🧺 New basket live on Spectrum\n\n${name}${tag} just launched. One token, the whole basket. Every trade feeds the PRISM burn.\n\n${link}`;
   }
   if (e.kind === "burn") {
     if (e.prism && e.prism > 0) {
-      return `🔥 PRISM buy & burn\n\n${fmtPrism(e.prism)} PRISM bought and burned — gone from the 5,000 cap forever.\n\n${link}`;
+      return `🔥 PRISM buy & burn\n\n${fmtPrism(e.prism)} PRISM bought and burned. Gone from the 5,000 cap forever.\n\n${link}`;
     }
     if (e.eth && e.eth > 0) {
       return `🔥 Spectrum revenue → PRISM burn\n\nΞ${fmtEth(e.eth)} of basket revenue is on its way to buy & burn PRISM.\n\n${link}`;
@@ -96,7 +96,7 @@ export async function broadcast(
 
   if (!eth) return { ...base0, note: "no provider (demo mode)" };
   // dry-run bypasses the arm gate so you can preview the copy before flipping it on
-  if (!armed && !dryRun) return { ...base0, note: "SOCIAL_ENABLED not set — dormant" };
+  if (!armed && !dryRun) return { ...base0, note: "SOCIAL_ENABLED not set, dormant" };
   if (!enabled.telegram && !enabled.x && !dryRun) return { ...base0, note: "no channel configured" };
 
   const state = await loadState();
@@ -126,7 +126,7 @@ export async function broadcast(
     .slice(0, MAX_PER_TICK);
 
   const candidates = fresh.map((e) => ({ id: e.txHash!, kind: e.kind, text: messageFor(e)! }));
-  if (dryRun) return { ...base0, candidates, note: "dry run — nothing posted, watermark unchanged" };
+  if (dryRun) return { ...base0, candidates, note: "dry run, nothing posted, watermark unchanged" };
 
   const posted: BroadcastResult["posted"] = [];
   let maxTs = state.sinceTs;
@@ -175,7 +175,7 @@ export async function dailyDigestText(eth: ReturnType<typeof Object> | null, bas
       "🔻 <b>PRISM daily</b>",
       "",
       `· Fees to holders (24h): <b>${usd(s.feesToHolders24h * s.ethUsd)}</b>`,
-      `· PRISM burned (24h): ${s.prismBurnedToday.toFixed(4)} — ${s.totalBurned.toFixed(2)} all-time of 5,000`,
+      `· PRISM burned (24h): ${s.prismBurnedToday.toFixed(4)} · ${s.totalBurned.toFixed(2)} all-time of 5,000`,
       `· Live baskets: ${s.indexCount}`,
       "",
       "Figures track third-party trading; they vary and can be zero.",

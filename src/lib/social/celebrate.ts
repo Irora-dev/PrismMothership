@@ -38,17 +38,24 @@ export async function celebrateLaunch(e: ActivityEvent, dryRun: boolean): Promis
     const text = [
       `🎉 <b>YOUR basket is live: $${live.symbol}</b>`,
       "",
-      "The draft this group built just launched on-chain. Every trade now feeds the PRISM burn — and it's auto-registered as this group's basket:",
+      "The draft this group built just launched on-chain. Every trade now feeds the PRISM burn, and it's auto-registered as this group's basket:",
       "",
-      "· /ourbasket — its live numbers, any time",
-      "· /league — see how it ranks against every other group",
+      "· /ourbasket for its live numbers, any time",
+      "· /league to see how it ranks against every other group",
       site ? `${site}/baskets/${live.address}` : "",
     ].filter(Boolean).join("\n");
     if (!dryRun) {
-      await sendTelegramMessage(chatId, text, {
-        parseMode: "HTML",
-        photoUrl: site ? `${site}/api/card?kind=bento&address=${live.address}&t=${Math.floor(Date.now() / 60_000)}` : undefined,
-      });
+      // the celebration lands in the group that drafted it, from the bot that
+      // ran the draft
+      await sendTelegramMessage(
+        chatId,
+        text,
+        {
+          parseMode: "HTML",
+          photoUrl: site ? `${site}/api/card?kind=bento&address=${live.address}&t=${Math.floor(Date.now() / 60_000)}` : undefined,
+        },
+        "spectrum",
+      );
       const reg = await getRegistry(chatId);
       await setGroupBasket(chatId, { address: live.address, chain: live.chain, symbol: live.symbol }, reg.title);
       await clearDraft(chatId, Date.now());

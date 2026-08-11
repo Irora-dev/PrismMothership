@@ -853,7 +853,7 @@ export default function ClaimPage() {
                                 : syncState === "done"
                                   ? "resynced ✓"
                                   : syncState === "more"
-                                    ? "partly synced — run again"
+                                    ? "partly synced, run again"
                                   : syncState === "unsupported"
                                     ? "resync unavailable"
                                     : "resync NFTs"}
@@ -980,7 +980,7 @@ export default function ClaimPage() {
                               </button>
                             )}
                             {primary === null && (
-                              <span className="text-[13px] text-slate-500">Nothing to claim yet — fees stream in as the pool trades.</span>
+                              <span className="text-[13px] text-slate-500">Nothing to claim yet. Fees stream in as the pool trades.</span>
                             )}
                             {primary === "claim" && hasWithdraw && (
                               <button onClick={() => setAuthorize("withdraw")} disabled={busy} className="text-[12px] text-slate-400 underline underline-offset-4 hover:text-white disabled:opacity-50">
@@ -1032,7 +1032,7 @@ export default function ClaimPage() {
                             {unsynced} Prism NFT{unsynced === 1 ? "" : "s"} not yet minted
                           </div>
                           <p className="mt-1.5 text-[13px] leading-relaxed text-slate-300 max-w-[520px]">
-                            You hold {wholeOwned} whole PRISM but {nftCount} Prism NFT{nftCount === 1 ? "" : "s"} — the mirror mints at
+                            You hold {wholeOwned} whole PRISM but {nftCount} Prism NFT{nftCount === 1 ? "" : "s"}. The mirror mints at
                             most 128 per transfer. Fees stream only to NFTs that exist, so the missing{" "}
                             {unsynced === 1 ? "one earns" : `${unsynced} earn`} nothing until minted. Resync fixes it in one
                             transaction.
@@ -1049,7 +1049,7 @@ export default function ClaimPage() {
                             : syncState === "mining"
                               ? "Resyncing…"
                               : syncState === "more"
-                                ? "Partly synced — run again"
+                                ? "Partly synced, run again"
                                 : "Resync now"}
                         </button>
                       </div>
@@ -1119,7 +1119,7 @@ export default function ClaimPage() {
                   <div className="mt-5 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={glass}>
                     <span className="text-[14px] text-slate-400">
                       {!PRISM_LIVE
-                        ? "A new PRISM is launching soon, led by the community. Once it's live, every whole PRISM you hold becomes a claimable Prism NFT with its own fee stream — this hub lights up then."
+                        ? "A new PRISM is launching soon, led by the community. Once it's live, every whole PRISM you hold becomes a claimable Prism NFT with its own fee stream, and this hub lights up then."
                         : `No Prism in this wallet${dustOwned > 0 ? ` beyond ${dustOwned.toFixed(4)} PRISM of dust` : ""}. A whole PRISM becomes a claimable Prism NFT with its own fee stream.`}
                     </span>
                     {UNISWAP_PRISM && (
@@ -1159,8 +1159,8 @@ export default function ClaimPage() {
                 {tx?.phase === "done" && (
                   <div className="mt-5 rounded-2xl p-4 text-[13px] text-emerald-300" style={{ ...glass, borderTop: `2px solid ${C.green}80` }}>
                     {tx.kind === "claim"
-                      ? "Fees realized — the button above now withdraws everything to your wallet."
-                      : "Withdrawn — the ETH and PRISM are in your wallet."}{" "}
+                      ? "Fees realized. The button above now withdraws everything to your wallet."
+                      : "Withdrawn. The ETH and PRISM are in your wallet."}{" "}
                     <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
                       View on Etherscan ↗
                     </a>
@@ -1323,7 +1323,7 @@ export default function ClaimPage() {
             }
             warning={
               authorize === "claim"
-                ? "Claiming realizes these fees into your address balance — nothing reaches your wallet until you withdraw (step 2, one more transaction)."
+                ? "Claiming realizes these fees into your address balance. Nothing reaches your wallet until you withdraw (step 2, one more transaction)."
                 : "This sends the realized balance to your wallet. Gas is paid from your wallet's ETH; until it mines, nothing has moved."
             }
             actionLabel={authorize === "claim" ? "Hold to claim" : "Hold to withdraw"}

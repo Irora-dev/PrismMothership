@@ -7,10 +7,19 @@ export const metadata: Metadata = {
   // Absolute base for og:image / twitter:image. Without this, Next falls back to
   // http://localhost:3000 and no social scraper can fetch the share image.
   // Netlify sets URL to the site's primary URL at build (custom domain or *.netlify.app).
-  // Priority: host-provided URL env → the integrator's site.config.json →
-  // the reference deploy. Keeps share images correct on any fork/domain.
-  metadataBase: new URL(
-    process.env.URL ||
+  // Priority: host-provided URL env → the integrator's site.config.json → nothing.
+  //
+  // ⚠️ The last resort used to be a hardcoded https://prismmothership.com, which
+  // is (a) a domain that currently serves a 404 and (b) OUR property, in a kit
+  // other people deploy. An operator who forgot one env var was publishing OG
+  // tags and canonical links pointing at someone else's dead site. There is no
+  // safe constant to put here, so there is no constant: with nothing configured
+  // Next falls back to the request's own origin, which is always right.
+  metadataBase: (() => {
+    const configured =
+      process.env.URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.DEPLOY_PRIME_URL ||
       (() => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -18,9 +27,13 @@ export const metadata: Metadata = {
         } catch {
           return "";
         }
-      })() ||
-      "https://prismmothership.com",
-  ),
+      })();
+    try {
+      return configured ? new URL(configured) : undefined;
+    } catch {
+      return undefined;   // a malformed env must not take the whole page down
+    }
+  })(),
   title: "The Prism Mothership",
   description:
     "An informational dashboard for the Prism token ecosystem: every buy-and-burn, every trade, every basket launch, shown live as it lands on-chain. Not investment advice.",

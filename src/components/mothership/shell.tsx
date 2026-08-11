@@ -199,7 +199,7 @@ function ConnectControl() {
         onClick={openPicker}
         className="whitespace-nowrap rounded-lg border border-white/10 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25"
         style={{ background: "rgba(255,255,255,0.04)", fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
-        title="Connected — click to switch wallets"
+        title="Connected · click to switch wallets"
       >
         {account.slice(0, 6)}…{account.slice(-4)}
       </button>
@@ -225,25 +225,25 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen" style={{ background: "#030409" }}>
       <MothershipIntro />
-      {/* ── brand bar: the title stays on top, per the designer ── */}
-      <nav className="sticky top-0 z-50 px-4 py-4 sm:px-6" style={glass}>
+      {/* ── brand bar: the wordmark is GONE (the designer, 2026-08-07, ex-branding-
+          advisor eye — supersedes the 08-03 "title stays on top" ruling). The
+          mark plus the blinking SYSTEM ONLINE is the whole identity, very
+          spaceship, and losing the text line lets the bar sit lower. The name
+          survives for screen readers in the link's aria-label. ── */}
+      <nav className="sticky top-0 z-50 px-4 py-2.5 sm:px-6" style={glass}>
         <div className="mx-auto flex max-w-[1536px] items-center justify-between gap-4">
-          <Link href="/" className="flex min-w-0 items-center gap-3 sm:gap-4" aria-label="The Prism Mothership">
+          <Link href="/" className="flex min-w-0 items-center gap-3 sm:gap-4" aria-label="The Prism Mothership — home">
             {/* the mark rides bare — no box, a little bigger, breathing
                 forward-and-back forever (the designer, 2026-08-03) */}
             <PixelRainbow className="h-7 w-auto shrink-0 sm:h-8" loop />
-            <div className="flex min-w-0 flex-col">
-              <span className="flex items-center gap-1.5 text-[9px] font-medium tracking-[0.2em] sm:text-[10px]" style={{ color: C.cyan }}>
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: C.green }} />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: C.green }} />
-                </span>
-                SYSTEM ONLINE
+            {/* now the only label in the slot, so it carries a slightly larger size */}
+            <span className="flex items-center gap-1.5 text-[10px] font-medium tracking-[0.2em] sm:text-[11px]" style={{ color: C.cyan }}>
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: C.green }} />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: C.green }} />
               </span>
-              <h1 className="truncate text-[15px] font-bold tracking-wide text-white sm:text-xl sm:tracking-wider">
-                THE PRISM MOTHERSHIP
-              </h1>
-            </div>
+              SYSTEM ONLINE
+            </span>
           </Link>
 
           <div className="flex items-center gap-3">

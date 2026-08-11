@@ -6,6 +6,7 @@ import { validateAddress } from "@/lib/social/token-validate";
 import { getDraft } from "@/lib/social/group-draft";
 import { squarify } from "@/lib/spectrum/treemap";
 import { tokenVisual } from "@/lib/spectrum/token-visual";
+import { botUsername } from "@/lib/social/bots";
 
 // ── Live stat cards for the Telegram bot (and anything else) ─────────────────
 // GET /api/card?kind=digest|price|burn|earned → a 1200×630 branded PNG with
@@ -119,9 +120,9 @@ function Frame({ title, accent, brand = "prism", children }: { title: string; ac
         {children}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", fontSize: 19, color: "#475569" }}>
-            {isSpectrum ? "Spectrum · figures track third-party trading and can be zero." : "Figures track third-party trading — they vary and can be zero."}
+            {isSpectrum ? "Spectrum · figures track third-party trading and can be zero." : "Figures track third-party trading · they vary and can be zero."}
           </div>
-          <div style={{ display: "flex", fontSize: 20, color: "#64748b", fontWeight: 700, letterSpacing: 2 }}>@SpectraPrismBot</div>
+          <div style={{ display: "flex", fontSize: 20, color: "#64748b", fontWeight: 700, letterSpacing: 2 }}>@{botUsername(isSpectrum ? "spectrum" : "prism")}</div>
         </div>
       </div>
     </div>
@@ -209,7 +210,7 @@ function Bento({ items, w, h }: { items: BentoTile[]; w: number; h: number }) {
                   {it.symbol.slice(0, 10).toUpperCase()}
                 </div>
                 <div style={{ display: "flex", fontWeight: 700, fontSize: badgeFont, color: vis.ink }}>
-                  {it.badge ?? `${Math.round(it.weightPct)}%`}
+                  {it.badge ?? (it.weightPct > 0 && it.weightPct < 0.5 ? "<1%" : `${Math.round(it.weightPct)}%`)}
                 </div>
               </div>
             ) : (
@@ -295,7 +296,7 @@ export async function GET(req: NextRequest) {
           <div style={{ display: "flex", fontSize: 170, fontWeight: 800, color: "#fff", letterSpacing: -5 }}>{num(amt, 4)}</div>
           <div style={{ display: "flex", fontSize: 36, color: "#94a3b8", marginLeft: 24, marginBottom: 32, fontWeight: 700 }}>PRISM</div>
         </div>
-        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 6 }}>Bought off the market and sent to the dead address — supply only shrinks.</div>
+        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 6 }}>Bought off the market and sent to the dead address. Supply only shrinks.</div>
       </div>
     );
   } else if (kind === "launch") {
@@ -308,7 +309,7 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", fontSize: 34, letterSpacing: 6, color: C.purple, fontWeight: 800 }}>🧺 LIVE ON SPECTRUM{chain ? ` · ${chain.toUpperCase()}` : ""}</div>
         <div style={{ display: "flex", fontSize: sym ? 150 : 96, fontWeight: 800, color: "#fff", letterSpacing: -4 }}>{sym ? `$${sym}` : name}</div>
         {sym ? <div style={{ display: "flex", fontSize: 40, color: "#94a3b8", fontWeight: 700 }}>{name}</div> : null}
-        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 18 }}>One token, the whole basket — every trade feeds the PRISM burn.</div>
+        <div style={{ display: "flex", fontSize: 26, color: "#94a3b8", marginTop: 18 }}>One token, the whole basket. Every trade feeds the PRISM burn.</div>
       </div>
     );
   } else if (kind === "prism") {
@@ -369,7 +370,7 @@ export async function GET(req: NextRequest) {
         <Bento items={live.top} w={470} h={330} />
       </div>
     ) : (
-      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No basket registered — /ourbasket TICKER</div>
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No basket registered · /ourbasket TICKER</div>
     );
   } else if (kind === "watchlist") {
     title = "GROUP WATCHLIST"; accent = C.cyan;
@@ -399,7 +400,7 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", fontSize: 21, color: "#64748b", marginTop: 22 }}>since each was added · /watch to extend the radar</div>
       </div>
     ) : (
-      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty radar — /watch TICKER starts it</div>
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty radar · /watch TICKER starts it</div>
     );
   } else if (kind === "league") {
     title = "GROUP LEAGUE · 24H"; accent = C.green;
@@ -425,7 +426,7 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", fontSize: 21, color: "#64748b", marginTop: 24 }}>enter your group: /ourbasket TICKER</div>
       </div>
     ) : (
-      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No group baskets yet — /ourbasket TICKER</div>
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>No group baskets yet · /ourbasket TICKER</div>
     );
   } else if (kind === "split") {
     title = "THE SPLIT"; accent = C.purple;
@@ -488,7 +489,13 @@ export async function GET(req: NextRequest) {
     title = isPnl ? "SINCE YOU LINKED" : "YOUR BOOK"; accent = isPnl ? C.green : C.cyan;
     const total = Number(q.get("total") || 0);
     const delta = Number(q.get("delta") || 0);
-    const legs = (q.get("legs") || "").split(",").map((p) => { const [s, v] = p.split(":"); return { symbol: (s || "").slice(0, 12).toUpperCase(), address: (s || "").toUpperCase(), weightPct: Math.max(0.01, Number(v) || 0) }; }).filter((l) => l.symbol).slice(0, 8);
+    // legs arrive as SYMBOL:usd-value. The bento labels tiles with a percent, so
+    // the values become each position's share of the book — a $1,215 holding
+    // printed "1215%" before this. Tile sizes are unchanged: squarify normalises
+    // by the sum, so scaling every leg by the same factor lays out identically.
+    const rawLegs = (q.get("legs") || "").split(",").map((p) => { const [s, v] = p.split(":"); return { symbol: (s || "").slice(0, 12).toUpperCase(), address: (s || "").toUpperCase(), value: Math.max(0, Number(v) || 0) }; }).filter((l) => l.symbol).slice(0, 8);
+    const legSum = rawLegs.reduce((a, l) => a + l.value, 0);
+    const legs = rawLegs.map((l) => ({ symbol: l.symbol, address: l.address, weightPct: legSum > 0 ? Math.max(0.01, (l.value / legSum) * 100) : 100 / Math.max(1, rawLegs.length) }));
     body = (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", flexDirection: "column", width: 380 }}>
@@ -539,7 +546,8 @@ export async function GET(req: NextRequest) {
     // deterministic hashed hue per symbol, so no network call and no dead render.
     title = "BASKET IDEA"; accent = C.purple;
     const syms = (req.nextUrl.searchParams.get("syms") || "").split(",").map((s) => s.trim().slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 8);
-    const items: BentoTile[] = syms.map((s) => ({ symbol: s, address: s, weightPct: 1 }));
+    // equal weight is 100/N, not 1 — the tile badge prints this as a percent
+    const items: BentoTile[] = syms.map((s) => ({ symbol: s, address: s, weightPct: 100 / Math.max(1, syms.length) }));
     body = items.length ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", flexDirection: "column", width: 330 }}>
@@ -575,7 +583,7 @@ export async function GET(req: NextRequest) {
         <Bento items={items} w={720} h={370} />
       </div>
     ) : (
-      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty draft — /propose $TICKER why</div>
+      <div style={{ display: "flex", fontSize: 54, color: "#64748b" }}>Empty draft · /propose $TICKER why</div>
     );
   } else if (kind === "token") {
     // read-only intel, param-driven (the command validated via DexScreener)
@@ -615,7 +623,7 @@ export async function GET(req: NextRequest) {
           <div style={{ display: "flex", fontSize: 96, fontWeight: 800, color: C.green }}>{(q.get("out") || "?").slice(0, 10)}</div>
           <div style={{ display: "flex", fontSize: 40, fontWeight: 700, color: "#94a3b8", marginLeft: 20, marginTop: 34 }}>PRISM</div>
         </div>
-        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 26 }}>1% pool fee streams to holders — including you, after this buy.</div>
+        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 26 }}>1% pool fee streams to holders, including you, after this buy.</div>
       </div>
     );
   } else if (kind === "ca") {
@@ -658,7 +666,7 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", flexDirection: "column", width: 560 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={`${origin}/mothership/lightrunner-logo-card.png`} width={480} height={141} alt="" />
-          <div style={{ display: "flex", fontSize: 28, color: "#cbd5e1", marginTop: 24, lineHeight: 1.5 }}>An onchain roguelike bullet hell built on Prism. Weekly leagues — run the dark, score high, win from the pot.</div>
+          <div style={{ display: "flex", fontSize: 28, color: "#cbd5e1", marginTop: 24, lineHeight: 1.5 }}>An onchain roguelike bullet hell built on Prism. Weekly leagues: run the dark, score high, win from the pot.</div>
           <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: "#5C7CFA", marginTop: 20 }}>playlightrunner.com</div>
         </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -674,7 +682,7 @@ export async function GET(req: NextRequest) {
     ];
     body = (
       <div style={{ display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", fontSize: 32, color: "#94a3b8" }}>Your live line to the Prism ecosystem — tap a command or just ask.</div>
+        <div style={{ display: "flex", fontSize: 32, color: "#94a3b8" }}>Your live line to the Prism ecosystem. Tap a command or just ask.</div>
         <div style={{ display: "flex", flexWrap: "wrap", marginTop: 26 }}>
           {cmds.map(([c, col]) => (
             <div key={c} style={{ display: "flex", fontSize: 30, fontWeight: 700, color: col, border: `2px solid ${col}44`, background: `${col}12`, borderRadius: 14, padding: "10px 22px", marginRight: 14, marginBottom: 14 }}>{c}</div>
@@ -693,7 +701,7 @@ export async function GET(req: NextRequest) {
           <div style={{ display: "flex", fontSize: 78, fontWeight: 800, color: "#fff", letterSpacing: -2 }}>Launching soon</div>
           <div style={{ display: "flex", fontSize: 22, fontWeight: 800, letterSpacing: 3, color: C.orange, border: `2px solid ${C.orange}55`, borderRadius: 9999, padding: "8px 22px", background: `${C.orange}14`, marginLeft: 30 }}>BUILT &amp; AUDITED</div>
         </div>
-        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 14, maxWidth: 900 }}>A whole portfolio in one buy, batched across baskets and tokens — a flat buy fee buys and burns PRISM. These slots light up the moment it is on-chain.</div>
+        <div style={{ display: "flex", fontSize: 27, color: "#94a3b8", marginTop: 14, maxWidth: 900 }}>A whole portfolio in one buy, batched across baskets and tokens, with a flat buy fee that buys and burns PRISM. These slots light up the moment it is on-chain.</div>
         <div style={{ display: "flex", marginTop: 30 }}>
           <Stat label="PORTFOLIO VOLUME" value="—" accent={C.orange} />
           <Stat label="FEES EARNED" value="—" accent={C.green} />

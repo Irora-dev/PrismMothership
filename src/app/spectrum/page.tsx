@@ -170,7 +170,7 @@ export default function SpectrumPage() {
         {data?.mode === "pending" && (
           <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[13px] text-slate-300">
             <span className="font-semibold text-slate-100">Awaiting launch.</span> These charts light up the moment
-            the Spectrum V2 factory and swap router go live — the activity feed and baskets below are already
+            the Spectrum V2 factory and swap router go live. The activity feed and baskets below are already
             on-chain.
           </div>
         )}
@@ -384,7 +384,7 @@ export default function SpectrumPage() {
           <p className="mt-3 mb-7 text-slate-300 leading-relaxed max-w-xl">
             A fixed 10% of every basket fee accrues to buy &amp; burn{" "}
             <span className="spectrum-text-gradient font-semibold">PRISM</span>. Each basket burns once its accrued share
-            reaches <span className="font-semibold text-slate-100">0.3 ETH</span> — here&apos;s how close each one is,
+            reaches <span className="font-semibold text-slate-100">0.3 ETH</span>. Here&apos;s how close each one is,
             across Ethereum and Base.
           </p>
           <BurnProximitySection />

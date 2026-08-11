@@ -52,7 +52,7 @@ export function HomeCharts() {
       <div className="flex items-end justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg sm:text-xl font-bold txt-white leading-none">The numbers, live</h2>
-          <p className="text-[12px] text-slate-500 mt-1.5">The ones that matter — trailing 24 hours, hourly.</p>
+          <p className="text-[12px] text-slate-500 mt-1.5">The ones that matter, trailing 24 hours, hourly.</p>
         </div>
         <Link
           href="/charts"

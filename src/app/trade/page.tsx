@@ -14,9 +14,9 @@ const NATIVE = (siteConfig as { tradingMode?: string }).tradingMode === "native"
 // holders (the designer's ask, 2026-08-03).
 
 export const metadata: Metadata = {
-  title: "Trade — The Prism Mothership",
+  title: "Trade · The Prism Mothership",
   description:
-    "Swap ETH for PRISM straight against the Uniswap v4 pool — and see your own trade's fee stream to holders, read from the chain.",
+    "Swap ETH for PRISM straight against the Uniswap v4 pool, and see your own trade's fee stream to holders, read from the chain.",
 };
 
 export default function TradePage() {
