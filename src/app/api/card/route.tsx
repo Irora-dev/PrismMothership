@@ -794,6 +794,18 @@ export async function GET(req: NextRequest) {
     width: 1200,
     height: 630,
     ...(fonts.length ? { fonts } : {}),
-    headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+    headers: {
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      // Netlify's Next runtime derives its edge-cache vary key from the query
+      // params it sees a handler read — and for ImageResponse routes it records
+      // NONE of them (JSON routes like /api/spectrum/charts get theirs), so
+      // every /api/card URL shared ONE cache entry: for a TTL window, any kind
+      // with any params served whichever PNG rendered first. Measured live on
+      // release .41 (2026-08-16): ten param-variance gate checks came back
+      // byte-identical, and the lightrunner card served burn-event's bytes.
+      // This header varies the edge on the FULL query string — the cache key
+      // this route always assumed it had.
+      "Netlify-Vary": "query",
+    },
   });
 }

@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.16.41",
-  "note": "The money map arrives at /flow: the ecosystem's fees enter a glass prism and fan out to their destinations, every figure measured on-chain and every pulse a real transaction you can open. The burn page becomes the burn crank: four honest stages, three chain roads, every step crankable by anyone \u2014 including a one-click L1 finalize for bridge crossings that cleared their dispute window. The Spectrum Portfolio system is live on all three chains: batched buys and wrapped swaps tracked end to end, with the whole wrapper fee now buying and burning PRISM, measured per event rather than assumed. Also: a site-wide activity ticker, per-page share cards, honest stale-read states everywhere money shows, and a bought-and-burnt figure that had silently read zero since it was written now tells the truth.",
+  "version": "2026.08.16.42",
+  "note": "Cards stop cross-serving at the edge: the card route's cache key never included its own query params on Netlify, so within a cache window every card URL could serve whichever image rendered first. The response now varies the edge cache on the full query string, so a share card is always the card that was asked for.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }
