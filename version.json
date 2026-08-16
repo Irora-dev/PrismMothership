@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.16.42",
-  "note": "Cards stop cross-serving at the edge: the card route's cache key never included its own query params on Netlify, so within a cache window every card URL could serve whichever image rendered first. The response now varies the edge cache on the full query string, so a share card is always the card that was asked for.",
+  "version": "2026.08.16.43",
+  "note": "Share cards are never shared-cached: the platform edge keyed every card URL to one cache entry regardless of its parameters, so within a cache window any card could serve another card's image. Varying the cache key per query proved unenforceable at the platform layer, so the card route now opts out of shared caching entirely - every card is rendered for the URL that asked.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

@@ -795,17 +795,20 @@ export async function GET(req: NextRequest) {
     height: 630,
     ...(fonts.length ? { fonts } : {}),
     headers: {
-      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-      // Netlify's Next runtime derives its edge-cache vary key from the query
-      // params it sees a handler read — and for ImageResponse routes it records
-      // NONE of them (JSON routes like /api/spectrum/charts get theirs), so
-      // every /api/card URL shared ONE cache entry: for a TTL window, any kind
-      // with any params served whichever PNG rendered first. Measured live on
-      // release .41 (2026-08-16): ten param-variance gate checks came back
-      // byte-identical, and the lightrunner card served burn-event's bytes.
-      // This header varies the edge on the FULL query string — the cache key
-      // this route always assumed it had.
-      "Netlify-Vary": "query",
+      // NEVER shared-cache this route. Netlify's Next runtime derives its
+      // edge-cache vary key from the query params it sees a handler read — and
+      // for ImageResponse routes it records NONE of them (JSON routes like
+      // /api/spectrum/charts get theirs), so under the old
+      // `public, s-maxage=300` every /api/card URL shared ONE cache entry:
+      // for a TTL window, any kind with any params served whichever PNG
+      // rendered first (measured live on release .41: ten param-variance gate
+      // checks byte-identical, lightrunner serving burn-event's bytes). A
+      // function-set `Netlify-Vary: query` emits fine locally but the runtime
+      // replaces it with its own computed header in production (measured on
+      // .42), so the only header it cannot misapply is no caching at all. A
+      // render costs a few hundred ms and share fetchers (X, Telegram) cache
+      // per-post on their side — correctness on share images wins.
+      "Cache-Control": "no-store",
     },
   });
 }
