@@ -5,6 +5,8 @@ import { getRegistry, registeredChats } from "@/lib/social/group-registry";
 import { validateAddress } from "@/lib/social/token-validate";
 import { getDraft } from "@/lib/social/group-draft";
 import { squarify } from "@/lib/spectrum/treemap";
+import { bentoWeight, TILE_INSET } from "@/lib/spectrum/bento-style";
+import { PRISM_TG_URL } from "@/lib/chain/token-links";
 import { tokenVisual } from "@/lib/spectrum/token-visual";
 import { botUsername } from "@/lib/social/bots";
 
@@ -28,6 +30,52 @@ const SPECTRUM_KINDS = new Set([
   "bento", "portfolio", "launch", "me", "pnl", "buy", "reweight",
 ]);
 const C = { green: "#00FF87", orange: "#FF5E00", cyan: "#00F0FF", purple: "#9D00FF", ground: "#030409" };
+
+// ── The brand typeface, on the cards the bot actually posts ──────────────────
+// These go out to X and Telegram and were rendering in Satori's default face,
+// because no `fonts` array was ever passed to ImageResponse. The site's own
+// woff2 set is no use here: Satori reads TTF/OTF/WOFF and cannot decode woff2
+// at all, so a TTF cut of the two brand families lives in public/fonts/ttf.
+//
+// Loaded off DISK first, with a self-origin fetch only as the backstop. A
+// serverless function fetching its own deployment is exactly the thing that has
+// failed here before, so the reliable path leads and `outputFileTracingIncludes`
+// in next.config.ts traces these four files into the function bundle. Cached per
+// instance, so it costs one read per cold start, and if both routes fail the
+// card falls back to the default face rather than 500ing on the bot.
+const BRAND_FONT_FILES = [
+  { file: "SpaceGrotesk-400.ttf", name: "Space Grotesk", weight: 400 as const },
+  { file: "SpaceGrotesk-700.ttf", name: "Space Grotesk", weight: 700 as const },
+  { file: "PlusJakartaSans-400.ttf", name: "Plus Jakarta Sans", weight: 400 as const },
+  { file: "PlusJakartaSans-800.ttf", name: "Plus Jakarta Sans", weight: 800 as const },
+];
+type LoadedFont = { name: string; data: ArrayBuffer; weight: 400 | 700 | 800; style: "normal" };
+let fontCache: LoadedFont[] | null = null;
+async function brandFonts(origin: string): Promise<LoadedFont[]> {
+  if (fontCache) return fontCache;
+  const read = async (file: string): Promise<ArrayBuffer> => {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const buf = await readFile(join(process.cwd(), "public", "fonts", "ttf", file));
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    } catch {
+      const r = await fetch(`${origin}/fonts/ttf/${file}`, { signal: AbortSignal.timeout(4000) });
+      if (!r.ok) throw new Error(`${file}: HTTP ${r.status}`);
+      return r.arrayBuffer();
+    }
+  };
+  try {
+    const loaded = await Promise.all(
+      BRAND_FONT_FILES.map(async (f) => ({ name: f.name, data: await read(f.file), weight: f.weight, style: "normal" as const })),
+    );
+    fontCache = loaded;
+    return loaded;
+  } catch {
+    return []; // no fonts → Satori's default, which is exactly what shipped before
+  }
+}
+const CARD_SANS = "Space Grotesk";
 
 function rainbowMark(cell: number) {
   const R = 9, INNER = 3;
@@ -92,7 +140,7 @@ function Frame({ title, accent, brand = "prism", children }: { title: string; ac
   const isSpectrum = brand === "spectrum";
   const rule = isSpectrum ? SPECTRUM_RAINBOW : RAINBOW;
   return (
-    <div style={{ width: "100%", height: "100%", display: "flex", background: C.ground, fontFamily: "sans-serif", position: "relative" }}>
+    <div style={{ width: "100%", height: "100%", display: "flex", background: C.ground, fontFamily: CARD_SANS, position: "relative" }}>
       <div style={{ position: "absolute", top: -180, left: -120, width: 560, height: 560, borderRadius: 9999, background: `${accent}22`, filter: "blur(120px)", display: "flex" }} />
       <div style={{ position: "absolute", bottom: -220, right: -100, width: 620, height: 620, borderRadius: 9999, background: `${C.purple}1f`, filter: "blur(130px)", display: "flex" }} />
       <div style={{ position: "absolute", top: 0, left: 0, width: 1200, height: 6, display: "flex", background: `linear-gradient(90deg, ${rule.join(",")})` }} />
@@ -145,9 +193,18 @@ function Stat({ label, value, accent, big }: { label: string; value: string; acc
 // deliberately skipped — the component's own documented degradation ("color +
 // ticker then carry the tile"), and a dead logo URL can never kill a render.
 interface BentoTile { symbol: string; address: string; weightPct: number; badge?: string }
+/** How many characters of a ticker fit on its plate before it collides with the
+ *  weight badge. Space Grotesk Bold averages ~0.62em per uppercase glyph; the
+ *  plate adds 16px of padding and the badge needs its own width plus a gap. */
+function tickerRoom(tileW: number, tickerFont: number, badgeFont: number, badge?: string): number {
+  const badgeChars = (badge ?? "100%").length;
+  const room = tileW - 6 - 16 - 16 - badgeChars * badgeFont * 0.6 - 8;
+  return Math.max(3, Math.min(11, Math.floor(room / (tickerFont * 0.62))));
+}
+
 function Bento({ items, w, h }: { items: BentoTile[]; w: number; h: number }) {
   const rects = squarify(
-    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address, weight: Math.pow(i.weightPct, 0.65) })),
+    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address, weight: bentoWeight(i.weightPct) })),
     w,
     h,
   );
@@ -176,7 +233,7 @@ function Bento({ items, w, h }: { items: BentoTile[]; w: number; h: number }) {
               height: Math.max(2, rc.h - 6),
               borderRadius: 14,
               background: vis.color,
-              boxShadow: "inset 0 2px 0 rgba(255,255,255,0.30), inset 0 -5px 12px rgba(0,0,0,0.22)",
+              boxShadow: TILE_INSET.lg,
               padding: 8,
             }}
           >
@@ -207,7 +264,13 @@ function Bento({ items, w, h }: { items: BentoTile[]; w: number; h: number }) {
                     boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
                   }}
                 >
-                  {it.symbol.slice(0, 10).toUpperCase()}
+                  {/* A flat 10-character cap does not survive a narrow tile:
+                      STONKBROKER on a third-width column overran its plate and
+                      printed straight through the weight badge. Satori has no
+                      text-overflow, so the budget is worked out here — the tile
+                      minus its padding, minus room for the badge, over the
+                      measured average advance of this face at this size. */}
+                  {it.symbol.slice(0, tickerRoom(rc.w, tickerFont, badgeFont, it.badge)).toUpperCase()}
                 </div>
                 <div style={{ display: "flex", fontWeight: 700, fontSize: badgeFont, color: vis.ink }}>
                   {it.badge ?? (it.weightPct > 0 && it.weightPct < 0.5 ? "<1%" : `${Math.round(it.weightPct)}%`)}
@@ -643,7 +706,7 @@ export async function GET(req: NextRequest) {
     const rows = [
       ["🌈", "linktr.ee/prism_lp", "every link, one place"],
       ["𝕏", "x.com/Prism_V4hook", "the PRISM account"],
-      ["✈️", "t.me/PrismLP", "the Telegram group"],
+      ["✈️", PRISM_TG_URL.replace("https://", ""), "the Telegram group"],
     ];
     body = (
       <div style={{ display: "flex", flexDirection: "column" }}>
@@ -726,9 +789,11 @@ export async function GET(req: NextRequest) {
   }
 
   const brand: Brand = SPECTRUM_KINDS.has(kind) ? "spectrum" : "prism";
+  const fonts = await brandFonts(req.nextUrl.origin);
   return new ImageResponse(<Frame title={title} accent={accent} brand={brand}>{body}</Frame>, {
     width: 1200,
     height: 630,
+    ...(fonts.length ? { fonts } : {}),
     headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
   });
 }

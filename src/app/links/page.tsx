@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { MothershipShell } from "@/components/mothership/shell";
 import { AmbientBlooms } from "@/components/mothership/blooms";
-import { marketLinks, PRISM_X_URL, SPECTRUM_X_URL } from "@/lib/chain/token-links";
+import { marketLinks, PRISM_X_URL, SPECTRUM_X_URL, PRISM_TG_URL } from "@/lib/chain/token-links";
 
 interface Embed {
   ok: boolean;
@@ -96,7 +96,7 @@ interface Social {
 // render until the new token is live — the old token's Uniswap/CoinGecko pages
 // and the third-party claim site were removed 2026-07-29 (ruling, relaunch).
 const SOCIALS: Social[] = [
-  { label: "Telegram", href: "https://t.me/PrismLP", color: "#38bdf8", icon: <TelegramIcon className="h-[18px] w-[18px]" /> },
+  { label: "Telegram", href: PRISM_TG_URL, color: "#38bdf8", icon: <TelegramIcon className="h-[18px] w-[18px]" /> },
   { label: "PRISM on X", sub: "@PrismMothership", href: PRISM_X_URL, color: "#e2e8f0", icon: <XIcon className="h-[18px] w-[18px]" /> },
   { label: "Spectrum on X", sub: "@spectrumindexes", href: SPECTRUM_X_URL, color: "#c084fc", icon: <XIcon className="h-[18px] w-[18px]" /> },
   ...marketLinks().map((m) => ({

@@ -139,11 +139,11 @@ Error: execution reverted`,
       },
       {
         title: "Every basket's fee split is a constant",
-        line: "10% burned, 5.55% interface, 5.55% launcher, creator capped at 30%, read off a real live basket.",
+        line: "25% burned on the current lineage (first-gen baskets are immutable at 10%), 5.55% interface, 5.55% launcher, creator capped at 30%.",
         keywords: ["fees", "split", "fee", "change", "setfee", "constant", "holders", "creator", "cut", "take"],
         code: {
           source: "read from the first basket launched by this factory, not from a document",
-          body: `$ cast call <basket> "BURN_SHARE_BPS()"        # 1000  = 10.00% burned
+          body: `$ cast call <basket> "BURN_SHARE_BPS()"        # 1000 on gen-1 baskets · the lineage standard is 2500 = 25%
 $ cast call <basket> "INTERFACE_SHARE_BPS()"   #  555  =  5.55%
 $ cast call <basket> "LAUNCHER_SHARE_BPS()"    #  555  =  5.55%
 $ cast call <basket> "MAX_CREATOR_SHARE_BPS()" # 3000  = 30% CEILING on the creator

@@ -9,6 +9,7 @@ import { FeeStreaks } from "@/components/radio/fee-streaks";
 import { PixelRainbow } from "@/components/effects/pixel-rainbow";
 import { useRadio } from "@/components/radio/radio-provider";
 import { StartRadioButton } from "@/components/radio/start-radio";
+import { CrankTotalsButtons } from "@/components/pulse/crank-burn";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { STATIONS } from "@/lib/radio/stations";
 import { C, MONO, glass, glow } from "@/components/mothership/style";
@@ -215,6 +216,10 @@ export default function RadioPage() {
   const [feeCount, setFeeCount] = useState(0);
   const [burstSeq, setBurstSeq] = useState(0);
   const [feeHistory, setFeeHistory] = useState<number[]>([]);
+  // a burn landing mid-listen: the visualizer fires a rainbow shockwave and
+  // the tab flashes what just died (the designer, 2026-08-16)
+  const [burnShock, setBurnShock] = useState(0);
+  const seenBurnsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     const fees = events.filter((e) => e.kind === "fee");
@@ -257,6 +262,24 @@ export default function RadioPage() {
     }
   }, [events, ethUsd]);
 
+  // burns get their own moment — only while actually listening
+  useEffect(() => {
+    const burns = events.filter((e) => e.kind === "burn");
+    if (seenBurnsRef.current === null) {
+      if (!events.length) return;
+      seenBurnsRef.current = new Set(burns.map((e) => e.id)); // the backlog never fires
+      return;
+    }
+    const fresh = burns.filter((e) => !seenBurnsRef.current!.has(e.id));
+    if (!fresh.length) return;
+    for (const e of fresh) seenBurnsRef.current.add(e.id);
+    if (!radio.playing) return;
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) setBurnShock((v) => v + 1);
+    const prism = fresh.reduce((a, e) => a + (e.prism ?? 0), 0);
+    radio.flashTab(prism > 0 ? `${fmtPrism(prism)} PRISM burned forever` : "PRISM burned forever");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, radio.playing]);
+
   return (
     <MothershipShell>
       {/* the audio-reactive field is the page's instrument, not chrome — it
@@ -278,8 +301,10 @@ export default function RadioPage() {
                 <span className="relative inline-flex h-3 w-3 rounded-full" style={{ background: "#FF5E00" }} />
               </span>
             </h1>
-            <div className="mt-5">
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
               <StartRadioButton />
+              {/* the two combined crank totals, pressable right here (the designer, 2026-08-16) */}
+              <CrankTotalsButtons />
             </div>
 
             {/* the whole ecosystem, live, two and two beneath (the designer 2026-08-03) */}
@@ -363,7 +388,28 @@ export default function RadioPage() {
               <div className="text-sm text-slate-400 mt-1.5 truncate">{radio.subtitle}</div>
               {radio.currentTrack?.album && <div className="text-[12px] text-slate-600 mt-0.5 truncate">{radio.currentTrack.album}</div>}
 
-              <Visualizer playing={radio.playing} getLevels={radio.getLevels} className="w-full h-20 md:h-24 mt-6" />
+              <div className="relative">
+                <Visualizer playing={radio.playing} getLevels={radio.getLevels} className="w-full h-20 md:h-24 mt-6" />
+                {/* the burn shockwave: rainbow rings off the visualizer when a
+                    burn lands mid-listen (the designer, 2026-08-16) */}
+                {burnShock > 0 && (
+                  <div key={burnShock} aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
+                    {[0, 1].map((i) => (
+                      <span
+                        key={i}
+                        className="absolute h-24 w-24 rounded-full"
+                        style={{
+                          background: "conic-gradient(#ff5a5a, #ff9f45, #ffe14d, #5cff8f, #3bd9ff, #7c8bff, #c06aff, #ff5a5a)",
+                          WebkitMask: "radial-gradient(closest-side, transparent 58%, #000 62%, #000 74%, transparent 78%)",
+                          mask: "radial-gradient(closest-side, transparent 58%, #000 62%, #000 74%, transparent 78%)",
+                          animation: `furnace-shock ${1.5 + i * 0.5}s ease-out ${i * 0.18}s forwards`,
+                          opacity: 0,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="flex items-center gap-3 mt-5 flex-wrap">
                 {radio.isPlaylist && (

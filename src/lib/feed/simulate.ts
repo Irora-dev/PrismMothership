@@ -1,5 +1,5 @@
 import { RANGES, type ActivityEvent, type BasketChartsPayload, type BasketPrevTotals, type Chain, type ChartsPayload, type ChartsPrevTotals, type EventKind, type EventSource, type PulseStats, type RangeKey } from "./types";
-import { PRISM_CAP } from "../chain/constants";
+import { BASKET_BURN_SHARE, PRISM_CAP } from "../chain/constants";
 
 // A fully deterministic, time-seeded activity simulator. Given any time window
 // it reproduces the exact same events — so it is stateless across server
@@ -120,6 +120,19 @@ function makeEvent(bucket: number, idx: number, ts: number): ActivityEvent {
         prism: 1,
         actor,
         note: "A new Prism NFT was minted. Fresh seed and art.",
+      };
+    }
+    case "batch": {
+      // not in pickKind's rotation — live batches come only from the watch;
+      // the case exists so the kind union stays exhaustive here
+      const funding = logAmount(rng, 120, 2400);
+      return {
+        ...base,
+        usd: funding,
+        feeUsd: funding * 0.004,
+        legs: 1 + Math.floor(rng() * 8),
+        actor,
+        note: "A batched portfolio execution: one signature, every leg filled on-chain",
       };
     }
     case "burn": {
@@ -324,7 +337,7 @@ function demoBucket(t: number, bucketMs: number, i: number, buckets: number): De
     feesUsd: 340 * hours * cycle * growth * (0.6 + rng() * 0.9),
     burnedPrism: (7 / 24) * hours * (0.4 + rng() * 1.1) + spike,
     traders: Math.max(trades > 0 ? 1 : 0, Math.round(trades * (0.3 + rng() * 0.25))),
-    basketBurnUsd: volumeUsd * feeRate * 0.1, // fixed 10% of the fee → PRISM
+    basketBurnUsd: volumeUsd * feeRate * BASKET_BURN_SHARE, // the fixed burn share of the fee → PRISM
   };
 }
 

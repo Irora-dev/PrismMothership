@@ -51,11 +51,12 @@ export interface SpectrumChartsPayload {
   sells: number[]; // redeems + router sells per bucket
   buyVolumeUsd: number[]; // per-side volume — net flow = buy − sell
   sellVolumeUsd: number[];
+  batchVolumeUsd: number[]; // portfolio batch funding per bucket (the batcher watch, USD)
   feesEthUsd: number[]; // basket fees earned per bucket, Ethereum baskets (USD)
   feesBaseUsd: number[]; // … Base baskets (USD)
   feesHoodUsd: number[]; // … Robinhood Chain baskets (USD)
   // window totals of the FeesAccrued split (USD). Holders are guaranteed ≥70% of
-  // the post-burn remainder; burn is a fixed 10% off the top. `league` is the
+  // the post-burn remainder; burn is a fixed 25% off the top. `league` is the
   // Robinhood lineage's 5th field (creator-league slice, 5% off the top) — zero
   // on chains whose baskets emit the 4-field event.
   feeSplit: { holders: number; burn: number; creator: number; interfaces: number; league: number };
@@ -94,6 +95,7 @@ export function emptySpectrumCharts(range: RangeKey, nowMs: number): SpectrumCha
     sells: zeros(),
     buyVolumeUsd: zeros(),
     sellVolumeUsd: zeros(),
+    batchVolumeUsd: zeros(),
     feesEthUsd: zeros(),
     feesBaseUsd: zeros(),
     feesHoodUsd: zeros(),

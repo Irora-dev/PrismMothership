@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { squarify } from "@/lib/spectrum/treemap";
+import { bentoWeight } from "@/lib/spectrum/bento-style";
 import { SPECTRUM_V2 } from "@/lib/chain/constants";
 
 // /robinhood — the Robinhood Chain world, matching the SpecCont bento asset's
@@ -100,7 +101,7 @@ function Tile({ rows = 1, cols = 1, children, className = "", style }: { rows?: 
 function MiniBento({ items }: { items: { symbol: string; weightPct: number }[] }) {
   const W = 200, H = 110;
   const rects = squarify(
-    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.symbol, weight: Math.pow(i.weightPct, 0.65) })),
+    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.symbol, weight: bentoWeight(i.weightPct) })),
     W, H,
   );
   return (
@@ -377,7 +378,7 @@ export default function RobinhoodPage() {
             live{updatedAt ? ` · ${Math.max(0, Math.round((nowTick - updatedAt) / 1000))}s ago` : ""} · A–Z · scroll →
           </span>
           <Link href="/spectrum" className="rounded-full px-4 py-2 text-[13px] font-bold transition-transform hover:scale-[1.04]" style={{ background: INK, color: "#f5f5f2" }}>
-            ← Prismbeat
+            ← Spectrum
           </Link>
         </div>
       </header>

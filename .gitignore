@@ -43,3 +43,4 @@ token/out/
 /.wrangler/
 # wrangler local secrets (the .example ships; real values never do)
 .dev.vars
+dev.log

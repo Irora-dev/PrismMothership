@@ -104,10 +104,12 @@ export const INDEX_SYMBOL_SEED: Record<string, string> = {
 // floor (V2: creator-set 1.00%–3.00%, CREATE2-committed at launch). The live
 // reader reads each basket's `basketFeeBps()` and falls back to this default.
 export const INDEX_POOL_FEE_RATE = 0.01; // 100 bps — v1 flat rate / V2 floor
-// A FIXED 10% of EVERY basket fee is the PRISM burn share (BURN_SHARE_BPS =
-// 1_000 on-chain — uniform on every basket, taken first off every fee).
-export const BASKET_BURN_SHARE = 0.1;
-export const INDEX_FEE_HOLDERS_SHARE = 0.6;
+// A FIXED 25% of EVERY basket fee is the PRISM burn share going forward
+// (BURN_SHARE_BPS = 2_500 in the gen-2 lineage, measured live on the rehearsal
+// factories 2026-08-15; the designer ruled the site says 25%, 2026-08-16). Deployed
+// gen-1 baskets are immutable and meter 1_000 on-chain — estimates follow the
+// ruling; measured surfaces keep reading the chain.
+export const BASKET_BURN_SHARE = 0.25;
 // dstable is a $1-pegged 6-decimal stablecoin on both chains.
 export const DSTABLE_DECIMALS = 6;
 
@@ -217,6 +219,146 @@ export const TOPIC_V2 = {
   auctionSentToBurn: id("AuctionSentToBurn(address,uint256)"), // mainnet
 } as const;
 
+// ── PORTFOLIO BATCHER WATCH (display-only, the designer's ruling 2026-08-15) ────────
+// "I'll be using the test portfolio batcher contracts which I want us to
+// recognize so I can share on marketing." These are the GEN-1 REHEARSAL
+// batchers — real, permanent contracts on real chains executing real batches,
+// but NOT the production ceremony set. This watch feeds the ACTIVITY LAYER
+// ONLY (feed events → deck, map wire, ticker, detail card). It supersedes the
+// 2026-08-14 decoys-never-touch-site rule for that layer alone; everything
+// ceremony-gated stays dark until real addresses arrive: the /burn portfolio
+// stream (burn-pipeline serves batcher: null), portfolioBatcherLive() (the
+// bot's copy), and the /portfolio page. ⚠️ Addresses collide across chains by
+// construction (one deployer, matching nonces): the ethereum hex IS the
+// robinhood hex — different contracts. Key on (chain, role), never bare hex.
+export const PORTFOLIO_BATCHER_WATCH: Record<"ethereum" | "base" | "robinhood", string[]> = {
+  ethereum: ["0x59a2756410887b7c1928Bf7C37B2bc9b1CeF95aA", "0xfb4646c26cfbbe8d4682aeb42e90b1ab8159764f"],
+  base: ["0x81eBc35F705F9F30f5e2a3990530C07B54C72aBb", "0x2ec8c0c87946ead5f9ae436374f6a6d0191c6803"],
+  robinhood: ["0x59a2756410887b7c1928Bf7C37B2bc9b1CeF95aA", "0x65bf8842700498f99375c267dcd31e324d8f874c"],
+};
+
+// ── GEN-3 PRODUCTION (the 2026-08-16 ceremony — all nine artifacts) ──────────
+// Ground truth: spectrum-contracts/ADDRESSES.md GEN-3 sections (read back
+// 18/18 by SpectrumContracts, independently cast-verified by them, and
+// INDEPENDENTLY re-read by this site before wiring — scripts/gen3-verify.mjs
+// re-runs that read on demand: sinks, thresholds, MAX_FEE_BPS 200, the 3,691B
+// sell-fixed wrapper build, registries empty, league seated).
+// The burn-pipeline's seated `batcher` payload keys on THESE (the rehearsal
+// decoys above feed the activity layer only, never the portfolio stream).
+// ⚠ Same-hex collisions across chains persist (one deployer) — chain-key always.
+export const PORTFOLIO_BATCHER_PROD: Record<"ethereum" | "base" | "robinhood", { address: string; fromBlock: number }> = {
+  ethereum: { address: "0xfb4646c26cfbbe8d4682aeb42e90b1ab8159764f", fromBlock: 25_765_000 }, // BURN_SINK = the L1 burner DIRECT (no collector on chain 1 by design)
+  base: { address: "0x2ec8c0c87946ead5f9ae436374f6a6d0191c6803", fromBlock: 50_000_000 }, // BURN_SINK = the gen-3 Base collector
+  robinhood: { address: "0x65bf8842700498f99375c267dcd31e324d8f874c", fromBlock: 37_900_000 }, // BURN_SINK = the gen-3 4663 collector
+};
+// Both BatchExecuted shapes exist across the lineages; the decoder switches on
+// topic0. The live rehearsal batchers emit the 5-field shape (proven against
+// the real 2026-08-15 00:10Z batch). Leg fills are counted per transaction.
+export const TOPIC_BATCH = {
+  executed5: id("BatchExecuted(address,address,uint256,uint256,uint256)"), // (recipient idx, fundingAsset idx, fundingTotal, fee, refunded)
+  executed7: id("BatchExecuted(address,address,uint256,uint256,uint256,uint16,uint16)"), // (recipient idx, fundingAsset, spentFunding, hubOut, feeEth, legs, skipped)
+  legFilled: id("LegFilled(address,address,uint256,uint256)"),
+  batchLegFilled: id("BatchLegFilled(address,address,uint8,uint256,uint256)"),
+  burnShareDelivered: id("BurnShareDelivered(address,uint256,uint256)"), // (sink idx, fundingSpent, ethDelivered) — the fee's burn share, MEASURED
+} as const;
+
+// The collector's flush event: the burn cut leaving the L2 on its ~7-day
+// withdrawal toward the L1 burner (stage two → three in flight).
+export const TOPIC_COLLECTOR = {
+  burnBridgedToL1: id("BurnBridgedToL1(address,uint256,address)"), // (burnerL1 idx, amount, caller idx)
+} as const;
+
+// The batcher's burn cut lands on the GEN-1 COLLECTOR on both L2s (the eth
+// batcher sinks straight to the burner pot in-tx, no collector stage). Stage
+// two of the three-stage burn is the collector's PERMISSIONLESS flush()
+// toward the L1 burner — surfaced and crankable by anyone per the designer's
+// 2026-08-15 ruling. flushable() is the contract's own go signal; "pending"
+// is the plain balance (no named getters exist — probed live 2026-08-15).
+// Same hex on both chains = DIFFERENT contracts; key on chain, never bare hex.
+export const PORTFOLIO_COLLECTOR_WATCH: { chain: "base" | "robinhood"; address: string; gen: 1 | 3 }[] = [
+  { chain: "base", address: "0xd658192c1Bd25fA8858ed34898491D55deD430a5", gen: 1 },
+  { chain: "robinhood", address: "0xd658192c1Bd25fA8858ed34898491D55deD430a5", gen: 1 },
+  // Gen-3 production collectors (ceremony 2026-08-16; thresholds 0.01 / 0.002
+  // ether read back live). Old-gen collectors stay live in parallel — the
+  // rehearsal decoys still point at them — so BOTH generations are watched and
+  // the road stations aggregate per chain.
+  { chain: "base", address: "0x15dfc383c9181662d3d3d874e112b1d6eb6c6461", gen: 3 },
+  { chain: "robinhood", address: "0x7e0f5621a2f0fd4365302a1776ae831ae9a4794c", gen: 3 },
+];
+
+// ── The 4663 → Ethereum settlement plumbing (the finalize crank) ─────────────
+// Robinhood Chain is an Arbitrum Orbit rollup settling to mainnet: a collector
+// or factory flush opens an ArbSys withdrawal, and after the dispute window the
+// L1 finalization is Outbox.executeTransaction — permissionless, unreimbursed,
+// the crank this site arms. The Outbox address is NOT guessed: SpectrumContracts
+// identified it by an exact (l2Sender, destination, position) triple match over
+// 487 real finalizations (spectrum-contracts/docs/ORBIT-OUTBOX-GAS-MEASURED-
+// 2026-08-08.md, reciprocally outbox.rollup() == outbox.bridge().rollup()),
+// and the whole proof path was re-proven live 2026-08-16 before wiring: a
+// constructOutboxProof + executeTransaction eth_call SUCCEEDS for a real
+// confirmed-unexecuted withdrawal (scripts/finalize-probe.mjs re-runs it).
+export const HOOD_OUTBOX_L1 = "0xf0ce991ea4a0d2400a4ab49b20ae333f6dce3de9";
+// ArbSys precompile (every L2→L1 withdrawal's event lives here) and the
+// NodeInterface virtual contract that constructs the Merkle proof — fixed
+// nitro addresses, present on every Orbit chain.
+export const ARB_SYS = "0x0000000000000000000000000000000000000064";
+export const ARB_NODE_INTERFACE = "0x00000000000000000000000000000000000000C8";
+export const TOPIC_ARB = {
+  // (caller, destination idx, hash idx, position idx, arbBlockNum, ethBlockNum, timestamp, callvalue, data)
+  l2ToL1Tx: id("L2ToL1Tx(address,address,uint256,uint256,uint256,uint256,uint256,uint256,bytes)"),
+  // (outputRoot idx, l2BlockHash idx) — the Outbox learns a root each time the
+  // rollup confirms; the L2 block it names carries the confirmed sendCount
+  sendRootUpdated: id("SendRootUpdated(bytes32,bytes32)"),
+} as const;
+
+// ── The direct-swap fee wrapper (SpectrumDirectSwapWrapper) ──────────────────
+// the designer 2026-08-16: "we now have wrapper swaps we need to track in portfolio /
+// moneymap." Ground truth: spectrum-contracts/ADDRESSES.md §DIRECT-LANE FEE
+// WRAPPER. ⛔ MAINNET IS PRODUCTION IN EFFECT — its BURN_SINK is the real,
+// generation-independent PrismBurner, so its fees are real burns from the
+// first swap (proven byte-exact 2026-08-16, tx 0xc743…3280). Base + 4663 are
+// rehearsal decoys awaiting the LNOC-class migration; like the batcher watch,
+// they feed the ACTIVITY layer only. The fee is charged in the SELL asset
+// (address(0) = native ETH) and splits fee/8 to the integrator, remainder to
+// the burn — the batcher's shared denominator, floor math, exact.
+// Every generation of the wrapper is watched: the gen-3 production set (the
+// 2026-08-16 ceremony — 100% burn, the PRISM-sell-fixed build) PLUS the
+// old-generation deployments that stay live in parallel (the superseded 0x588f
+// mainnet wrapper and the two rehearsal decoys the designer traded through). One
+// scan window per chain; the floor is the OLDEST watched deploy, so one
+// getLogs covers every generation.
+export const WRAPPER_WATCH: Record<"ethereum" | "base" | "robinhood", { addresses: string[]; fromBlock: number }> = {
+  ethereum: { addresses: ["0x588f5b2C2DCA25B789D3493036dAB467eBc5BbaE", "0xCE01C930E548421867A8C1DBD7cE83a7D26C5c99"], fromBlock: 25_766_852 },
+  base: { addresses: ["0x1c5c8c0fEB7dd3FD530f6295882aCD1824D8E8F5", "0xEf88CC32C34172D9cAA09b405fBed2151785bF03"], fromBlock: 50_040_733 },
+  robinhood: { addresses: ["0x6a45227658d78Bac0D9FE97FeF817fFa83c02A9B", "0xBeC653154735a0D1928430E82c5a17229227c067"], fromBlock: 37_846_447 },
+};
+export const TOPIC_WRAPPER = {
+  directSwap: id("DirectSwap(address,address,address,uint256,uint256,uint256)"), // (caller idx, sellToken idx, buyToken idx, spent, bought, refunded) — measured, sellToken 0x0 = native; IDENTICAL across generations
+  feeCharged: id("FeeCharged(address,uint256,address,uint256)"), // OLD generation: (integrator idx, integratorCut, burnSink idx, burnCut) — the 7:1 split
+  feeChargedWhole: id("FeeCharged(address,uint256)"), // GEN-3: (burnSink idx, burnCut) — burnCut == fee, 100% burn, no integrator (pinned from the deployed source; the ceremony's fee ruling)
+} as const;
+// The OLD generation's floor math (fee/8 → integrator, remainder → burn),
+// verified byte-exact on the first 0x588f mainnet swap. Gen-3 burns the WHOLE
+// fee — its events carry the measured burnCut, so this constant survives ONLY
+// as the display fallback for old-generation events; never apply it to gen-3.
+export const WRAPPER_BURN_SHARE = 7 / 8;
+
+// The PRISM pool's fixed fee split: the ETH leg is all holders'; the PRISM leg
+// burns. Single-sourced for the money map and its mini vignette.
+export const POOL_TO_HOLDERS = 0.9;
+export const POOL_TO_BURN = 0.1;
+
+// Wallet-facing chain params, single-sourced for every crank surface.
+export const CHAIN_HEX: Record<string, string> = { ethereum: "0x1", base: "0x2105", robinhood: "0x1237" };
+export const CHAIN_LABEL: Record<string, string> = { ethereum: "Ethereum", base: "Base", robinhood: "Robinhood" };
+export const HOOD_ADD_PARAMS = {
+  chainId: "0x1237",
+  chainName: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://rpc.mainnet.chain.robinhood.com/rpc"],
+  blockExplorerUrls: ["https://robinhoodchain.blockscout.com"],
+} as const;
+
 // ── The Spectrum launch set — 2026-07-30 ceremony (supersedes the 07-11 relaunch) ──
 // Source of truth: `spectrum-contracts/ADDRESSES.md`, placed on this worker's desk by
 // the SpectrumContracts worker. Every address below was re-verified live on ITS OWN
@@ -312,6 +454,25 @@ export const SPECTRUM_LEGACY_FACTORIES: Record<
   ethereum: [{ address: "0xEf520C7f354d03253149388F6338189Bc1A0Ba01", floor: 25_646_000 }],
   base: [],
   robinhood: [],
+};
+
+// ── GEN-3 basket factories (the 2026-08-16 production ceremony) ──────────────
+// Fresh registries (allBasketsLength 0 at wiring, re-read live), community
+// launches begin when the kit re-seats. ADDITIVE alongside SPECTRUM_V2: the
+// July-30 factories keep every live basket, so discovery + charts scan BOTH
+// generations (the RHTEST1 lesson: wire discovery BEFORE the first launch, or
+// it is invisible). Same additive registry discipline as the legacy list —
+// own cursor, own floor, per factory. The 4663 LeaguePool 0x620c1596…B9ba is
+// seated to the 4663 factory (league splits stay MEASURED off FeesAccrued, no
+// address needed here). Evidence: spectrum-contracts/ADDRESSES.md GEN-3 leg 2
+// + scripts/gen3-verify.mjs (independent re-read before wiring).
+export const SPECTRUM_V3_FACTORIES: Record<
+  "ethereum" | "base" | "robinhood",
+  { address: string; floor: number }[]
+> = {
+  ethereum: [{ address: "0xd0798c3743E15594a6918C0C0fD6F86eC76e96de", floor: 25_765_000 }],
+  base: [{ address: "0xfD168aFf1321f3dd9Fe310759ED73a8De536e4b7", floor: 50_000_000 }],
+  robinhood: [{ address: "0xf47443C33D2DF877bf5d80B46557636E08C8083A", floor: 37_900_000 }],
 };
 
 // The Robinhood-lineage LeaguePool. Its one-shot `seatFactory` is spent, and its

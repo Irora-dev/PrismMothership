@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { squarify } from "@/lib/spectrum/treemap";
+import { bentoWeight, TILE_INSET } from "@/lib/spectrum/bento-style";
 import { logoSources, tokenVisual, type TokenChain } from "@/lib/spectrum/token-visual";
 import { useTokenColors } from "@/lib/spectrum/use-token-colors";
 
@@ -18,10 +19,6 @@ export interface BentoItem {
 }
 
 const VW = 300; // virtual width; height measured from the parent (fill layout)
-
-// Tile AREA scales by weight^SIZE_EXP (< 1) so a dominant holding doesn't take
-// the whole box and the long tail stays legible. Labels show the TRUE weight.
-const SIZE_EXP = 0.65;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -88,7 +85,7 @@ export function BasketBento({
   const rects = useMemo(
     () =>
       squarify(
-        items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address, weight: Math.pow(i.weightPct, SIZE_EXP) })),
+        items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address, weight: bentoWeight(i.weightPct) })),
         VW,
         VH,
       ),
@@ -142,7 +139,7 @@ export function BasketBento({
               className="relative h-full w-full overflow-hidden rounded-xl"
               style={{
                 background: color,
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.30), inset 0 -3px 7px rgba(0,0,0,0.22)",
+                boxShadow: TILE_INSET.sm,
               }}
               title={`${it.symbol} · ${it.weightPct.toFixed(1)}%`}
             >

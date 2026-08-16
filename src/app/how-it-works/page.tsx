@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MothershipShell } from "@/components/mothership/shell";
 import { AmbientBlooms } from "@/components/mothership/blooms";
@@ -8,6 +7,7 @@ import { HoloPrism } from "@/components/mothership/holo-prism";
 import { C, MONO, RAINBOW, glass, glow } from "@/components/mothership/style";
 import { CountUp } from "@/components/pulse/count-up";
 import { fmtEth, fmtPrism, fmtUsd, fmtUsdFull } from "@/lib/feed/format";
+import { usePolledJson } from "@/hooks/usePolledJson";
 import type { PulseStats } from "@/lib/feed/types";
 
 // ── How it works — the full revamp (the designer's session-end ask, 2026-08-03) ─────
@@ -38,24 +38,10 @@ function Beam({ d, color, dur = 1.6 }: { d: string; color: string; dur?: number 
 }
 
 export default function HowItWorksPage() {
-  const [stats, setStats] = useState<PulseStats | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = () =>
-      fetch("/api/feed", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d: { stats?: PulseStats }) => {
-          if (alive && d.stats) setStats(d.stats);
-        })
-        .catch(() => {});
-    tick();
-    const id = setInterval(tick, 15_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+  // usePolledJson instead of a swallowed catch: a dead feed used to zero every
+  // figure on this page silently; now the page says so under the hero
+  const { data: feedRaw, stale: statsStale } = usePolledJson<{ stats?: PulseStats }>("/api/feed", 15_000);
+  const stats = feedRaw?.stats ?? null;
 
   const ethUsd = stats?.ethUsd ?? 0;
   const prismUsd = stats?.prismUsd ?? 0;
@@ -81,6 +67,11 @@ export default function HowItWorksPage() {
           <p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-slate-400 sm:text-base" style={{ textWrap: "balance" }}>
             Along with buying and burning PRISM across its own trading activity and ecosystem apps.
           </p>
+          {statsStale && (
+            <p className="mx-auto mt-3 max-w-lg text-[11px] text-red-300/80">
+              The live feed stopped answering. {stats ? "The figures below are the last that came through, not live." : "Live figures are unavailable right now."}
+            </p>
+          )}
         </div>
 
         {/* ── the split diagram: trades in, holders + burn out ── */}
@@ -192,7 +183,7 @@ export default function HowItWorksPage() {
             </div>
             <h3 className="mt-4 text-lg font-bold text-white">Every app feeds the same prism</h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Every basket routes 10% of its fees into buying and burning PRISM. More apps, more fuel.
+              Every basket routes 25% of its fees into buying and burning PRISM. More apps, more fuel.
             </p>
             <div className="mt-auto flex h-[76px] items-center justify-between rounded-xl border border-white/5 px-4" style={{ background: "rgba(255,255,255,0.03)" }}>
               <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Basket fees · all time</span>

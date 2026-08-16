@@ -4,7 +4,7 @@ import {
   formatUnits,
   type EventLog,
 } from "ethers";
-import { SPECTRUM_V2, SPECTRUM_V2_FROM_BLOCK, SPECTRUM_LEGACY_FACTORIES } from "@/lib/chain/constants";
+import { SPECTRUM_V2, SPECTRUM_V2_FROM_BLOCK, SPECTRUM_LEGACY_FACTORIES, SPECTRUM_V3_FACTORIES } from "@/lib/chain/constants";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Spectrum index-token data layer — Ethereum (chain 1) + Base (chain 8453).
@@ -569,11 +569,14 @@ async function listIndexesForChain(cfg: ChainCfg): Promise<IndexSummary[]> {
     }
     for (const a of found) addresses.add(a);
 
-    // Legacy factories: same registry discipline, own cursor each, own floor each.
-    // These are ADDITIONAL sources of real baskets (see SPECTRUM_LEGACY_FACTORIES),
-    // not the chain's current factory — the kit still launches into one of them.
+    // Additional factories: same registry discipline, own cursor each, own
+    // floor each. Two additive generations ride this loop — the LEGACY eth
+    // factory (older real baskets) and the GEN-3 production factories (fresh
+    // registries from the 2026-08-16 ceremony, wired BEFORE their first
+    // community launch so it can never be invisible — the RHTEST1 lesson).
+    // SPECTRUM_V2 stays the chain's primary factory until the kit re-seats.
     const legacyReg: Record<string, { cursor: number; addresses: string[] }> = { ...(prev?.legacy ?? {}) };
-    for (const lf of SPECTRUM_LEGACY_FACTORIES[cfg.chain]) {
+    for (const lf of [...SPECTRUM_LEGACY_FACTORIES[cfg.chain], ...SPECTRUM_V3_FACTORIES[cfg.chain]]) {
       const key = lf.address.toLowerCase();
       const lKnown = legacyReg[key] ?? { cursor: lf.floor - 1, addresses: [] as string[] };
       for (const a of lKnown.addresses) addresses.add(a);

@@ -103,7 +103,7 @@ export function PulseDashboard({ hero }: { hero?: ReactNode }) {
               prismUsd={stats?.prismUsd ?? 0}
               prismSupply={stats?.supply ?? 0}
               title="Spectrum Overview"
-              info="Every basket buy, sell, and launch across Ethereum & Base, the moment it lands on-chain. Each basket sets its own trading fee (1–3%), and a fixed 10% of every fee is used to buy and burn PRISM."
+              info="Every basket buy, sell, and launch across Ethereum & Base, the moment it lands on-chain. Each basket sets its own trading fee (1–3%), and a fixed 25% of every fee is used to buy and burn PRISM."
               filters={ECO_FILTERS}
               include={isEcoEvent}
               link={{ href: "/spectrum", label: "All stats" }}

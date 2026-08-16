@@ -2,7 +2,7 @@
   "name": "prism-mothership",
   "version": "0.1.0",
   "private": true,
-  "description": "Live activity tracker for the Prism token ecosystem \u2014 watch every buy-and-burn and LP-fee event as it happens.",
+  "description": "Live activity tracker for the Prism token ecosystem — watch every buy-and-burn and LP-fee event as it happens.",
   "scripts": {
     "dev": "next dev --port 3090",
     "prebuild": "node scripts/build-radio-manifest.mjs",
@@ -23,25 +23,27 @@
     "ethers": "^6.13.4",
     "modern-screenshot": "^4.7.0",
     "next": "^16.1.6",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.3",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.2",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "jsqr": "^1.4.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.8.0",
-    "@opennextjs/cloudflare": "^1.20.2",
     "wrangler": "^4.118.0"
   },
   "license": "CC0-1.0",
   "cloudflare": {
     "bindings": {
       "ALCHEMY_API_KEY": {
-        "description": "Your Alchemy API key (free at alchemy.com) \u2014 powers all live chain reads. Required for live data."
+        "description": "Your Alchemy API key (free at alchemy.com) — powers all live chain reads. Required for live data."
       },
       "URL": {
         "description": "Your canonical https URL, e.g. `https://example.com`. You can attach the custom domain after deploy under **Domains & Routes**."

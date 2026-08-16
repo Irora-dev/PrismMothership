@@ -1,6 +1,6 @@
 // ── Spectrum burn-proximity ──────────────────────────────────────────────────
 // Per-basket "how close is it to a PRISM burn?" — computed against the fixed
-// on-chain threshold. Every basket accrues a 10% burn share (in USDC) into
+// on-chain threshold. Every basket accrues a 25% burn share (in USDC) into
 // `pendingPrismBurn()`; a permissionless crank fires once that converts to
 // ≥ 0.3 ETH (BurnLeg.sol `BURN_THRESHOLD` on mainnet / `BRIDGE_THRESHOLD` on
 // Base — the SAME 0.3 ETH constant). So proximity = pendingPrismBurn →

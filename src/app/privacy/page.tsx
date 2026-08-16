@@ -4,9 +4,9 @@ import { AnimatedBg } from "@/components/effects/animated-bg";
 import { TopNav } from "@/components/layout/top-nav";
 
 export const metadata: Metadata = {
-  title: "Privacy notice · Prismbeat",
+  title: "Privacy notice · The Prism Mothership",
   description:
-    "Prismbeat is a read-only informational dashboard. No accounts, no analytics, no tracking cookies. This notice explains the limited data involved when you visit.",
+    "The Prism Mothership is a read-only informational dashboard. No accounts, no analytics, no tracking cookies. This notice explains the limited data involved when you visit.",
 };
 
 // NOTE: Working draft of the privacy notice, written to match the site's actual
@@ -28,7 +28,7 @@ const SECTIONS: Section[] = [
     h: "1. What this notice covers",
     body: (
       <>
-        Prismbeat is an informational dashboard that displays public, on-chain activity. There are no
+        The Prism Mothership is an informational dashboard that displays public, on-chain activity. There are no
         accounts, no sign-up, and no login. This notice explains the limited personal data involved when
         you visit the site, how it is used, and the rights you have under the EU General Data Protection
         Regulation (GDPR).
@@ -74,7 +74,7 @@ const SECTIONS: Section[] = [
     h: "5. Browser storage",
     body: (
       <>
-        Prismbeat stores a small amount of data in your browser to make the site work, such as interface
+        The Prism Mothership stores a small amount of data in your browser to make the site work, such as interface
         preferences and display values. This storage is strictly necessary, stays on your device, is not
         used to track you, and is not shared. Because we set no non-essential or tracking cookies, the site
         does not show a cookie-consent banner.
@@ -86,7 +86,7 @@ const SECTIONS: Section[] = [
     body: (
       <>
         We serve our fonts and other assets from our own domain rather than from third-party content
-        networks. As a result, simply loading Prismbeat does not transmit your data to outside services such
+        networks. As a result, simply loading The Prism Mothership does not transmit your data to outside services such
         as font providers.
       </>
     ),
@@ -156,7 +156,7 @@ export default function PrivacyPage() {
           <div className="spectrum-divider w-full mt-3" />
         </div>
         <p className="mt-5 text-base md:text-lg text-slate-300 leading-relaxed max-w-2xl">
-          Prismbeat is a read-only dashboard. No accounts, no analytics, no tracking cookies. Here is the
+          The Prism Mothership is a read-only dashboard. No accounts, no analytics, no tracking cookies. Here is the
           limited data involved when you visit, and what you can do about it.
         </p>
         <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-slate-500 font-semibold">

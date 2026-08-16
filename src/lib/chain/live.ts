@@ -7,7 +7,7 @@ import {
   getAddress,
   type Log,
 } from "ethers";
-import type { ActivityEvent, PulseStats } from "../feed/types";
+import type { ActivityEvent, Chain, PulseStats } from "../feed/types";
 import { listIndexes } from "../spectrum/index-data";
 import {
   DEAD,
@@ -39,6 +39,10 @@ import {
   SPECTRUM_LEGACY_FACTORIES,
   SPECTRUM_V2_FROM_BLOCK,
   TOPIC_V2,
+  TOPIC_BATCH,
+  PORTFOLIO_BATCHER_WATCH,
+  TOPIC_WRAPPER,
+  WRAPPER_WATCH,
   USDC_DECIMALS,
 } from "./constants";
 
@@ -400,6 +404,126 @@ function num(v: bigint, decimals = 18): number {
   return Number(formatUnits(v < 0n ? -v : v, decimals));
 }
 
+// Portfolio batches off the batcher watch (PORTFOLIO_BATCHER_WATCH — the designer's
+// 2026-08-15 marketing ruling): one labeled event per BatchExecuted, legs
+// counted from the same transaction's fill logs. The funding asset is the
+// chain's 6dp settlement coin, so the notional is already a dollar figure.
+function decodeBatchEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number): ActivityEvent[] {
+  const legsByTx = new Map<string, number>();
+  const burnByTx = new Map<string, number>();
+  for (const l of logs) {
+    if (l.topics[0] === TOPIC_BATCH.legFilled || l.topics[0] === TOPIC_BATCH.batchLegFilled)
+      legsByTx.set(l.transactionHash, (legsByTx.get(l.transactionHash) ?? 0) + 1);
+    // the fee's burn share, as the batcher actually DELIVERED it — measured,
+    // never a ruled percentage (the burn:integrator split is the open q-158).
+    // BurnDiverted deliberately does NOT count: diverted is visibly not burnt.
+    if (l.topics[0] === TOPIC_BATCH.burnShareDelivered) {
+      try {
+        const d = abi.decode(["uint256", "uint256"], l.data);
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint, 6));
+      } catch {
+        /* skip malformed */
+      }
+    }
+  }
+  const out: ActivityEvent[] = [];
+  for (const l of logs) {
+    try {
+      const base = {
+        id: `${l.transactionHash}:${l.index}`,
+        kind: "batch" as const,
+        source: "portfolio" as const,
+        chain,
+        ts: tsOf(l),
+        blockNumber: l.blockNumber,
+        txHash: l.transactionHash,
+        actor: `0x${l.topics[1].slice(26)}`,
+        note: "A batched portfolio execution: one signature, every leg filled on-chain",
+      };
+      if (l.topics[0] === TOPIC_BATCH.executed5) {
+        const d = abi.decode(["uint256", "uint256", "uint256"], l.data);
+        out.push({
+          ...base,
+          usd: num(d[0] as bigint, 6),
+          feeUsd: num(d[1] as bigint, 6),
+          legs: legsByTx.get(l.transactionHash),
+          burnUsd: burnByTx.get(l.transactionHash),
+        });
+      } else if (l.topics[0] === TOPIC_BATCH.executed7) {
+        const d = abi.decode(["address", "uint256", "uint256", "uint256", "uint16", "uint16"], l.data);
+        out.push({
+          ...base,
+          usd: num(d[1] as bigint, 6),
+          legs: Number(d[4] as bigint) || legsByTx.get(l.transactionHash),
+          burnUsd: burnByTx.get(l.transactionHash),
+        });
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return out;
+}
+
+// Wrapper swaps off the wrapper watch (WRAPPER_WATCH — the designer's 2026-08-16
+// "track wrapper swaps in portfolio / moneymap"): one labeled event per
+// DirectSwap, the same tx's FeeCharged carrying the measured fee. The fee is
+// charged in the SELL asset, so amounts are only stated when that asset is
+// native ETH (sellToken 0x0) — an ERC20-sell swap still shows, unpriced.
+function decodeWrapperEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number): ActivityEvent[] {
+  // Two FeeCharged generations share the wrapper lane: the old 4-field split
+  // (integratorCut + burnCut, the 7:1 build) and gen-3's 2-field whole-fee
+  // burn (burnCut == fee — the 2026-08-16 ceremony ruling, read off the
+  // deployed code). Both are MEASURED off the event, so the burn figure is
+  // never derived from a share constant, and each event's note tells its own
+  // generation's split truthfully.
+  const feeByTx = new Map<string, number>();
+  const burnByTx = new Map<string, number>();
+  for (const l of logs) {
+    try {
+      if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
+        const d = abi.decode(["uint256", "uint256"], l.data); // (integratorCut, burnCut)
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint) + num(d[1] as bigint));
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[1] as bigint));
+      } else if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
+        const d = abi.decode(["uint256"], l.data); // (burnCut) — the whole fee
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint));
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint));
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  const out: ActivityEvent[] = [];
+  for (const l of logs) {
+    if (l.topics[0] !== TOPIC_WRAPPER.directSwap) continue;
+    try {
+      const native = l.topics[2] === `0x${"0".repeat(64)}`;
+      const d = abi.decode(["uint256", "uint256", "uint256"], l.data); // (spent, bought, refunded)
+      const fee = feeByTx.get(l.transactionHash);
+      const burn = burnByTx.get(l.transactionHash);
+      const wholeFeeBurns = fee != null && burn != null && fee > 0 && burn >= fee;
+      out.push({
+        id: `${l.transactionHash}:${l.index}`,
+        kind: "fee" as const,
+        source: "wrapper" as const,
+        chain,
+        ts: tsOf(l),
+        blockNumber: l.blockNumber,
+        txHash: l.transactionHash,
+        actor: `0x${l.topics[1].slice(26)}`,
+        ...(native ? { tradeEth: num(d[0] as bigint), eth: fee, burnEth: burn } : {}),
+        note: wholeFeeBurns
+          ? "A swap through the fee wrapper: the whole fee buys & burns PRISM"
+          : "A swap through the fee wrapper: fee/8 to the interface, the rest buys & burns PRISM",
+      });
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return out;
+}
+
 // Timestamps are estimated from block height (latestTs − Δblocks × blockTime).
 // Accurate to a few seconds — plenty for "4m ago" — and costs zero extra RPC.
 function blockTimestamps(
@@ -461,7 +585,7 @@ async function fetchEthEvents(
   // entirely. ethers DROPS an empty address filter, so running them would match
   // every other token's burns and mislabel them as PRISM. Spectrum's own
   // launches and trades below are unaffected and keep the feed alive.
-  const [burns, swaps, yields, launched, launchedV2, tradesKnown] = await Promise.all([
+  const [burns, swaps, yields, launched, launchedV2, tradesKnown, batchLogs, wrapperLogs] = await Promise.all([
     PRISM_LIVE
       ? provider
           .getLogs({ address: PRISM, topics: [TOPIC.transfer, null, TOPIC_DEAD], fromBlock, toBlock })
@@ -498,6 +622,16 @@ async function fetchEthEvents(
           .getLogs({ address: v2Tokens, topics: [[TOPIC_V2.minted, TOPIC_V2.redeemed]], fromBlock, toBlock })
           .catch(() => [] as Log[])
       : Promise.resolve([] as Log[]),
+    // portfolio batches off the batcher watch (all its events; decoder filters)
+    PORTFOLIO_BATCHER_WATCH.ethereum.length
+      ? provider
+          .getLogs({ address: PORTFOLIO_BATCHER_WATCH.ethereum, fromBlock, toBlock })
+          .catch(() => [] as Log[])
+      : Promise.resolve([] as Log[]),
+    // wrapper swaps off the wrapper watch (every generation — real burns)
+    provider
+      .getLogs({ address: WRAPPER_WATCH.ethereum.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]], fromBlock, toBlock })
+      .catch(() => [] as Log[]),
   ]);
 
   // A basket launched inside this same window trades immediately — the batch
@@ -509,11 +643,13 @@ async function fetchEthEvents(
     : ([] as Log[]);
   const trades = lateEthTrades.length ? [...tradesKnown, ...lateEthTrades] : tradesKnown;
 
-  const all = [...burns, ...swaps, ...yields, ...launched, ...launchedV2, ...trades];
+  const all = [...burns, ...swaps, ...yields, ...launched, ...launchedV2, ...trades, ...batchLogs, ...wrapperLogs];
   const tsMap = blockTimestamps(all.map((l) => l.blockNumber), toBlock, latestTs, ETH_SECONDS_PER_BLOCK);
   const tsOf = (l: Log) => tsMap.get(l.blockNumber) ?? Date.now();
   const idOf = (l: Log) => `${l.transactionHash}:${l.index}`;
   const events: ActivityEvent[] = [];
+  events.push(...decodeBatchEvents(batchLogs, "ethereum", tsOf));
+  events.push(...decodeWrapperEvents(wrapperLogs, "ethereum", tsOf));
 
   for (const l of swaps.slice(-80)) {
     const d = abi.decode(["int128", "int128", "uint160", "uint128", "int24", "uint24"], l.data);
@@ -654,7 +790,7 @@ async function fetchEthEvents(
         symbol: sym,
         label: nameOf(l.address),
         actor: getAddress(l.address),
-        note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on Ethereum. 10% of the fee buys & burns PRISM`,
+        note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on Ethereum. 25% of the fee buys & burns PRISM`,
       });
     } catch {
       /* skip malformed */
@@ -678,7 +814,7 @@ async function fetchBaseEvents(
   latestTs: number,
   tokens: string[],
 ): Promise<{ events: ActivityEvent[]; newTokens: string[] }> {
-  const [launched, launchedV2, bridged, bridgedV2, tradesKnown, idxBridged] = await Promise.all([
+  const [launched, launchedV2, bridged, bridgedV2, tradesKnown, idxBridged, batchLogs, wrapperLogs] = await Promise.all([
     provider
       .getLogs({ address: SPECTRUM_BASE, topics: [TOPIC.launched], fromBlock, toBlock })
       .catch(() => [] as Log[]),
@@ -706,6 +842,16 @@ async function fetchBaseEvents(
           .getLogs({ address: tokens, topics: [TOPIC.prismBurnBridged], fromBlock, toBlock })
           .catch(() => [] as Log[])
       : Promise.resolve([] as Log[]),
+    // portfolio batches off the batcher watch (all its events; decoder filters)
+    PORTFOLIO_BATCHER_WATCH.base.length
+      ? provider
+          .getLogs({ address: PORTFOLIO_BATCHER_WATCH.base, fromBlock, toBlock })
+          .catch(() => [] as Log[])
+      : Promise.resolve([] as Log[]),
+    // wrapper swaps (rehearsal decoy on Base — activity layer only)
+    provider
+      .getLogs({ address: WRAPPER_WATCH.base.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]], fromBlock, toBlock })
+      .catch(() => [] as Log[]),
   ]);
 
   // Same-window launches trade with the pre-launch token list blind to them —
@@ -716,11 +862,13 @@ async function fetchBaseEvents(
     : ([] as Log[]);
   const trades = lateBaseTrades.length ? [...tradesKnown, ...lateBaseTrades] : tradesKnown;
 
-  const all = [...launched, ...launchedV2, ...bridged, ...bridgedV2, ...trades, ...idxBridged];
+  const all = [...launched, ...launchedV2, ...bridged, ...bridgedV2, ...trades, ...idxBridged, ...batchLogs, ...wrapperLogs];
   const tsMap = blockTimestamps(all.map((l) => l.blockNumber), toBlock, latestTs, BASE_SECONDS_PER_BLOCK);
   const tsOf = (l: Log) => tsMap.get(l.blockNumber) ?? Date.now();
   const idOf = (l: Log) => `${l.transactionHash}:${l.index}`;
   const events: ActivityEvent[] = [];
+  events.push(...decodeBatchEvents(batchLogs, "base", tsOf));
+  events.push(...decodeWrapperEvents(wrapperLogs, "base", tsOf));
   const newTokens: string[] = [];
 
   for (const l of launched) {
@@ -816,7 +964,7 @@ async function fetchBaseEvents(
   }
 
   // Per-trade basket fees. Each carries the basket's fee (its own on-chain
-  // rate; v1 flat 1%) in USD — a fixed 10% of it is PRISM's. The cap only
+  // rate; v1 flat 1%) in USD — a fixed 25% of it is PRISM's. The cap only
   // guards a pathological scan: a real 24h cold day must fit, or the feed
   // silently starts the day short.
   const tradeSlice = trades.slice(-400);
@@ -848,7 +996,7 @@ async function fetchBaseEvents(
         symbol: sym,
         label: nameOf(l.address),
         actor: getAddress(l.address),
-        note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on Base. 10% of the fee buys & burns PRISM`,
+        note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on Base. 25% of the fee buys & burns PRISM`,
       });
     } catch {
       /* skip malformed */
@@ -927,6 +1075,18 @@ let baseFeeAcc: VolAcc | null = null;
 // below by the factory's first launch, so the cold back-scan stays tiny.
 let ethFeeAcc: VolAcc | null = null;
 
+// And the same for Robinhood Chain — which is where MOST basket trading
+// actually happens (measured 2026-08-14: the deck's lifetime basket-fee figure
+// read $47 against the charts store's $534, because this chain was simply
+// missing from the sum). Its 0.1s blocks mean a chunk covers far fewer trades
+// than on Base, so the cold scan uses a much wider chunk to stay cheap.
+let hoodFeeAcc: VolAcc | null = null;
+const HOOD_TRADE_CHUNK = 2_000_000; // ~2.3 days/chunk at 0.1s blocks
+// At 0.1s blocks EVERY stats rebuild sees new blocks, so an ungated increment
+// would fire a getLogs on each one. This is an ALL-TIME figure — five minutes
+// of lag is invisible — so only fold in once the cursor is meaningfully behind.
+const HOOD_INCREMENT_MIN_BLOCKS = 3_000; // ~5 minutes
+
 // ── Accumulator persistence (Netlify Blobs; best-effort, silently absent in
 // local dev) ──────────────────────────────────────────────────────────────────
 // Without this, all three accumulators re-sum from chain inception on EVERY cold
@@ -940,6 +1100,9 @@ interface AccSnap {
   feeAcc: FeeAcc | null; // PRISM's — token-scoped
   baseFeeAcc: VolAcc | null; // Spectrum's — token-independent
   ethFeeAcc: VolAcc | null; // Spectrum's — token-independent
+  // optional: blobs written before the hood accumulator existed still parse,
+  // they just rebuild this one leg on the next cold start
+  hoodFeeAcc?: VolAcc | null;
 }
 type BlobJson = { get(k: string, o: { type: "json" }): Promise<unknown>; setJSON(k: string, v: unknown): Promise<void> };
 async function statsBlob(): Promise<BlobJson | null> {
@@ -979,6 +1142,7 @@ async function loadAccSnap(): Promise<AccSnap | null> {
         feeAcc: tokenPart?.feeAcc ?? null, // only this token's fee history
         baseFeeAcc: spectrumPart?.baseFeeAcc ?? null,
         ethFeeAcc: spectrumPart?.ethFeeAcc ?? null,
+        hoodFeeAcc: spectrumPart?.hoodFeeAcc ?? null,
       };
     }
   } catch {
@@ -997,7 +1161,7 @@ async function persistAcc(): Promise<void> {
       const k = accKey();
       await Promise.all([
         k ? blobs.setJSON(k, { v: 1, feeAcc, baseFeeAcc: null, ethFeeAcc: null } satisfies AccSnap) : Promise.resolve(),
-        blobs.setJSON(spectrumAccKey, { v: 1, feeAcc: null, baseFeeAcc, ethFeeAcc } satisfies AccSnap),
+        blobs.setJSON(spectrumAccKey, { v: 1, feeAcc: null, baseFeeAcc, ethFeeAcc, hoodFeeAcc } satisfies AccSnap),
       ]);
     }
   } catch {
@@ -1024,8 +1188,9 @@ async function getIndexTradeLogsChunked(
   tokens: string[],
   from: number,
   to: number,
+  chunk = 100_000,
 ): Promise<Log[]> {
-  const CHUNK = 100_000; // ~2.3 days/chunk on Base — keeps trade counts under the cap
+  const CHUNK = chunk; // ~2.3 days/chunk on Base — keeps trade counts under the cap
   const out: Log[] = [];
   for (let s = from; s <= to; s += CHUNK) {
     const e = Math.min(s + CHUNK - 1, to);
@@ -1079,6 +1244,9 @@ async function computeLiveStats(
     if (snap?.v === 1) {
       if (!feeAcc && snap.feeAcc && latestNum - snap.feeAcc.lastBlock <= ETH_WEEK_BLOCKS) feeAcc = snap.feeAcc;
       if (!ethFeeAcc && snap.ethFeeAcc && latestNum - snap.ethFeeAcc.lastBlock <= ETH_WEEK_BLOCKS) ethFeeAcc = snap.ethFeeAcc;
+      // hood resumes from ANY age: its increment is chunked, so a stale cursor
+      // costs a few extra chunks rather than the full 13M-block cold scan
+      if (!hoodFeeAcc && snap.hoodFeeAcc) hoodFeeAcc = snap.hoodFeeAcc;
     }
   }
 
@@ -1173,6 +1341,44 @@ async function computeLiveStats(
     /* eth basket leg optional */
   }
 
+  // Robinhood Chain basket trade volume — the chain carrying most of the
+  // trading, and the reason the lifetime figure was ~11x low before this.
+  try {
+    const hoodProvider = getHoodProvider();
+    if (hoodProvider) {
+      const { all: hoodV2 } = await hoodIndexTokens();
+      if (hoodV2.length) {
+        const hLatest = await hoodProvider.getBlockNumber();
+        if (!hoodFeeAcc) {
+          const allTrades = await getIndexTradeLogsChunked(
+            hoodProvider,
+            hoodV2,
+            SPECTRUM_V2_FROM_BLOCK.robinhood,
+            hLatest,
+            HOOD_TRADE_CHUNK,
+          );
+          hoodFeeAcc = { lastBlock: hLatest, volumeUsd: sumIndexTradeVolumeUsd(allTrades), tokens: hoodV2 };
+        } else if (hLatest - hoodFeeAcc.lastBlock >= HOOD_INCREMENT_MIN_BLOCKS) {
+          // a stale cursor can span millions of 0.1s blocks, so resume CHUNKED
+          // rather than in one getLogs the node will refuse
+          const fresh = await getIndexTradeLogsChunked(
+            hoodProvider,
+            hoodFeeAcc.tokens,
+            hoodFeeAcc.lastBlock + 1,
+            hLatest,
+            HOOD_TRADE_CHUNK,
+          ).catch(() => null as Log[] | null);
+          if (fresh) {
+            hoodFeeAcc.volumeUsd += sumIndexTradeVolumeUsd(fresh);
+            hoodFeeAcc.lastBlock = hLatest;
+          }
+        }
+      }
+    }
+  } catch {
+    /* hood basket leg optional */
+  }
+
   // bridgePendingEth = Base value bridged-to-burn in the last ~7d (in-flight over
   // the ~7-day withdrawal), summing auction + index bridges.
   let bridgePendingEth = 0;
@@ -1246,9 +1452,18 @@ async function computeLiveStats(
     }
   }
 
-  // Basket-fee totals across BOTH chains: Base (v1 + V2) + the ETH V2 baskets.
-  // Flat 1% approximates well — v1 is flat 1% and 1% is V2's floor/typical rate.
-  const tradeVolumeUsd = (baseFeeAcc?.volumeUsd ?? 0) + (ethFeeAcc?.volumeUsd ?? 0);
+  // Basket-fee totals across ALL THREE chains: Base (v1 + V2), the ETH V2
+  // baskets, and Robinhood — which was missing entirely until 2026-08-15 and
+  // is where most basket trading happens, so the figure read ~11x low.
+  //
+  // This is volume × a FLAT 1%, which is an approximation: baskets set their
+  // own rate (1-3%), so anything above 1% under-reads here. Measured against
+  // the charts store's real FeesAccrued amounts on 2026-08-15: $498.67 vs
+  // $535.64, i.e. ~7% low. That residual is the fee-rate spread, not a missing
+  // chain. The exact figure lives in the charts store (which reads the events)
+  // and is what /flow and the money map display; this one cannot import it
+  // without a cycle, since charts.ts imports this file.
+  const tradeVolumeUsd = (baseFeeAcc?.volumeUsd ?? 0) + (ethFeeAcc?.volumeUsd ?? 0) + (hoodFeeAcc?.volumeUsd ?? 0);
   if (tradeVolumeUsd > 0 && ethUsd > 0) {
     indexFeesTotal = (tradeVolumeUsd * INDEX_POOL_FEE_RATE) / ethUsd;
   }
@@ -1316,19 +1531,31 @@ async function fetchHoodEvents(
   const CHUNK = 400_000;
   const launched: Log[] = [];
   const trades: Log[] = [];
+  const batchLogs: Log[] = [];
+  const wrapperLogs: Log[] = [];
   const factory = SPECTRUM_V2.hoodFactory;
   for (let s0 = fromBlock; s0 <= toBlock; s0 += CHUNK) {
     const e0 = Math.min(s0 + CHUNK - 1, toBlock);
-    const [l, t] = await Promise.all([
+    const [l, t, b, w] = await Promise.all([
       factory
         ? provider.getLogs({ address: factory, topics: [TOPIC_V2.launched], fromBlock: s0, toBlock: e0 }).catch(() => [] as Log[])
         : Promise.resolve([] as Log[]),
       tokens.length
         ? provider.getLogs({ address: tokens, topics: [[TOPIC_V2.minted, TOPIC_V2.redeemed]], fromBlock: s0, toBlock: e0 }).catch(() => [] as Log[])
         : Promise.resolve([] as Log[]),
+      // portfolio batches off the batcher watch (all its events; decoder filters)
+      PORTFOLIO_BATCHER_WATCH.robinhood.length
+        ? provider.getLogs({ address: PORTFOLIO_BATCHER_WATCH.robinhood, fromBlock: s0, toBlock: e0 }).catch(() => [] as Log[])
+        : Promise.resolve([] as Log[]),
+      // wrapper swaps (rehearsal decoy on 4663 — activity layer only)
+      provider
+        .getLogs({ address: WRAPPER_WATCH.robinhood.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]], fromBlock: s0, toBlock: e0 })
+        .catch(() => [] as Log[]),
     ]);
     launched.push(...l);
     trades.push(...t);
+    batchLogs.push(...b);
+    wrapperLogs.push(...w);
   }
 
   // Same-window launches trade with the pre-launch token list blind to them —
@@ -1340,11 +1567,13 @@ async function fetchHoodEvents(
     );
   }
 
-  const all = [...launched, ...trades];
+  const all = [...launched, ...trades, ...batchLogs, ...wrapperLogs];
   const tsMap = blockTimestamps(all.map((l) => l.blockNumber), toBlock, latestTs, HOOD_SECONDS_PER_BLOCK);
   const tsOf = (l: Log) => (tsMap.get(l.blockNumber) ?? Date.now());
   const idOf = (l: Log) => `${l.transactionHash}:${l.index}`;
   const events: ActivityEvent[] = [];
+  events.push(...decodeBatchEvents(batchLogs, "robinhood", tsOf));
+  events.push(...decodeWrapperEvents(wrapperLogs, "robinhood", tsOf));
   const newTokens: string[] = [];
 
   for (const l of launched) {
@@ -1390,7 +1619,7 @@ async function fetchHoodEvents(
         side: isBuy ? "buy" : "sell",
         symbol: sym,
         actor: l.address,
-        note: `${sym ? `${sym} ` : ""}${isBuy ? "buy" : "sell"} on Robinhood Chain. 10% of the fee buys & burns PRISM`,
+        note: `${sym ? `${sym} ` : ""}${isBuy ? "buy" : "sell"} on Robinhood Chain. 25% of the fee buys & burns PRISM`,
       });
     } catch {
       /* skip malformed */
@@ -1423,8 +1652,11 @@ let inflight: Promise<FeedSnap> | null = null;
 // v3: time-based 24h retention replaced the 60-slot trade cap — the bump
 // discards v2 snapshots, whose buffers already EVICTED the early-day trades
 // under the old cap (warm cursors would never revisit those blocks).
+// v4: portfolio batch events joined the feed (the batcher watch) — a warm v3
+// cursor sits AHEAD of any batch already on chain, so without the bump the
+// first batches the designer wants to share would never appear.
 interface FeedBlobSnap {
-  v: 3;
+  v: 6; // v6: wrapper swaps join the feed (WRAPPER_WATCH, 2026-08-16)
   ethBlock: number;
   baseBlock: number;
   hoodBlock: number;
@@ -1444,7 +1676,7 @@ async function loadFeedSnap(): Promise<void> {
     const k = feedKey();
     if (!k) return; // pre-launch: no per-token key, nothing to restore
     const snap = (await blobs.get(k, { type: "json" })) as FeedBlobSnap | null;
-    if (!snap || snap.v !== 3 || !Array.isArray(snap.events)) return;
+    if (!snap || snap.v !== 6 || !Array.isArray(snap.events)) return;
     feedCache = {
       ethBlock: snap.ethBlock,
       baseBlock: snap.baseBlock,
@@ -1468,7 +1700,7 @@ async function persistFeedSnap(s: FeedSnap): Promise<void> {
     const blobs = await statsBlob();
     if (!blobs) return;
     const snap: FeedBlobSnap = {
-      v: 3,
+      v: 6,
       ethBlock: s.ethBlock,
       baseBlock: s.baseBlock,
       hoodBlock: s.hoodBlock,

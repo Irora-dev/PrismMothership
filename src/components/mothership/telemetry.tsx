@@ -484,7 +484,7 @@ export function TelemetryPanel() {
               <Reveal>
                 <TimeChart
                   title="Basket fees earned"
-                  caption={`${caption} · every basket's full fee (PRISM's 10% inside it)`}
+                  caption={`${caption} · every basket's full fee (PRISM's 25% inside it)`}
                   color="#38bdf8"
                   range={range}
                   bucketMs={data.bucketMs}
@@ -531,7 +531,7 @@ export function TelemetryPanel() {
               <Reveal>
                 <TimeChart
                   title="Basket fees → PRISM"
-                  caption={`${caption} · the fixed 10% burn share${derived.basketBurnPace ? ` · ≈ ${fmtCompactValue(derived.basketBurnPace.perYear, true)}/yr pace (${derived.basketBurnPace.days}d)` : ""}`}
+                  caption={`${caption} · the fixed 25% burn share${derived.basketBurnPace ? ` · ≈ ${fmtCompactValue(derived.basketBurnPace.perYear, true)}/yr pace (${derived.basketBurnPace.days}d)` : ""}`}
                   color={HUES.accrual}
                   range={range}
                   bucketMs={data.bucketMs}

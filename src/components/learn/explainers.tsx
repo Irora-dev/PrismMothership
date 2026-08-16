@@ -14,19 +14,19 @@ const WATCH: { kind: EventKind; title: string; lead: string; more: string }[] = 
     kind: "fee",
     title: "Swap revenue",
     lead: "Every whole PRISM is a live Uniswap V4 liquidity position, wired through a hook.",
-    more: "So each swap through the pool routes revenue to holders on-chain, with no staking required: all of the pool's ETH-side fees and 80% of its PRISM-side fees, plus 10% of Spectrum basket trading fees bridged from Base.",
+    more: "So each swap through the pool routes revenue to holders on-chain, with no staking required: all of the pool's ETH-side fees and 80% of its PRISM-side fees, plus 25% of Spectrum basket trading fees bridged from Base.",
   },
   {
     kind: "burn",
     title: "Buy & Burn",
     lead: "Two streams end at the dead address: PRISM taken as swap fees, and PRISM bought on the open market.",
-    more: "Every sell through the PRISM pool pays its fee in PRISM, and 20% of that is burned outright \u2014 it is already PRISM, so nothing has to be bought. Separately, every Spectrum basket sends 10% of its trading fees to buy PRISM on the open market and burn that too. Once burned it is gone forever, so the supply only moves down.",
+    more: "Every sell through the PRISM pool pays its fee in PRISM, and 20% of that is burned outright \u2014 it is already PRISM, so nothing has to be bought. Separately, every Spectrum basket sends 25% of its trading fees to buy PRISM on the open market and burn that too. Once burned it is gone forever, so the supply only moves down.",
   },
   {
     kind: "launch",
     title: "Basket Launched",
     lead: "Anyone can launch a Spectrum basket.",
-    more: "Its trading revenue is split between the basket's holders and its creator, and 10% buys and burns PRISM. The launch auction's ETH burns PRISM too.",
+    more: "Its trading revenue is split between the basket's holders and its creator, and 25% buys and burns PRISM. The launch auction's ETH burns PRISM too.",
   },
   {
     kind: "harvest",
@@ -180,7 +180,7 @@ export function HoldEarnClaim() {
 
 const STREAMS: { pct?: string; chains?: string[]; src: string; to: string; burn: boolean }[] = [
   { chains: ["Ethereum", "Base", "Robinhood"], src: "Spectrum launch fees", to: "Buy & burn PRISM", burn: true },
-  { pct: "10%", chains: ["Ethereum", "Base", "Robinhood"], src: "Spectrum basket fees", to: "Buy & burn PRISM", burn: true },
+  { pct: "25%", chains: ["Ethereum", "Base", "Robinhood"], src: "Spectrum basket fees", to: "Buy & burn PRISM", burn: true },
   { pct: "20%", src: "Reserve revenue", to: "Buys & burns PRISM", burn: true },
   { pct: "100%", src: "PRISM pool fees, ETH side", to: "Routed to PRISM holders", burn: false },
   { pct: "80%", src: "PRISM pool fees, PRISM side", to: "Routed to PRISM holders", burn: false },
@@ -294,7 +294,7 @@ export function EcosystemLoop() {
 /* ── The two products ── */
 
 const TRIO = [
-  { name: "Spectrum", role: "basket launchpad", color: "#a855f7", flow: "10% of basket fees + every launch fee → buy & burn" },
+  { name: "Spectrum", role: "basket launchpad", color: "#a855f7", flow: "25% of basket fees + every launch fee → buy & burn" },
   { name: "Prism pool", role: "its own market", color: "#f59e0b", flow: "100% of ETH + 80% of PRISM → holders" },
 ];
 

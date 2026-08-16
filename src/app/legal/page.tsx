@@ -4,9 +4,9 @@ import { AnimatedBg } from "@/components/effects/animated-bg";
 import { TopNav } from "@/components/layout/top-nav";
 
 export const metadata: Metadata = {
-  title: "Legal & disclaimers · Prismbeat",
+  title: "Legal & disclaimers · The Prism Mothership",
   description:
-    "Prismbeat is an informational dashboard that displays public on-chain activity. It is not investment advice, an offer, or a solicitation.",
+    "The Prism Mothership is an informational dashboard that displays public on-chain activity. It is not investment advice, an offer, or a solicitation.",
 };
 
 // NOTE: This is a working draft of the legal / disclaimer copy, written to match
@@ -26,7 +26,7 @@ const SECTIONS: Section[] = [
     h: "1. Informational purpose only",
     body: (
       <>
-        Prismbeat is an informational dashboard that displays public, on-chain activity relating to the
+        The Prism Mothership is an informational dashboard that displays public, on-chain activity relating to the
         Prism token and connected protocols. It exists to make publicly available blockchain data easier
         to read. Everything shown here is provided for general information only and does not take account
         of your objectives, financial situation, or needs.
@@ -59,7 +59,7 @@ const SECTIONS: Section[] = [
     h: "4. No affiliation or endorsement",
     body: (
       <>
-        Prismbeat is an independent dashboard. It is not affiliated with, sponsored by, or endorsed by
+        The Prism Mothership is an independent dashboard. It is not affiliated with, sponsored by, or endorsed by
         Prism, Spectrum, Uniswap, or any of the tokens, protocols, or projects whose data may be
         displayed, and it does not endorse any of them. All product names, logos, and trademarks belong to
         their respective owners and are used for identification only.
@@ -140,7 +140,7 @@ export default function LegalPage() {
           <div className="spectrum-divider w-full mt-3" />
         </div>
         <p className="mt-5 text-base md:text-lg text-slate-300 leading-relaxed max-w-2xl">
-          Prismbeat is an informational dashboard that displays public on-chain activity. Please read these
+          The Prism Mothership is an informational dashboard that displays public on-chain activity. Please read these
           disclaimers carefully before using the site.
         </p>
         <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-slate-500 font-semibold">
@@ -160,7 +160,7 @@ export default function LegalPage() {
         {/* footer */}
         <footer className="mt-14 pt-8 border-t border-white/10 text-[12px] text-slate-500 leading-relaxed">
           <p>
-            By using Prismbeat you acknowledge that you have read and understood these disclaimers. See also
+            By using The Prism Mothership you acknowledge that you have read and understood these disclaimers. See also
             our{" "}
             <Link href="/privacy" className="text-slate-400 hover:text-white underline underline-offset-2">
               Privacy notice

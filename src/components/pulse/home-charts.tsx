@@ -111,7 +111,7 @@ export function HomeCharts() {
         <Reveal>
           <TimeChart
             title="Basket swap fees"
-            caption={`${caption} · 10% of every fee burns PRISM`}
+            caption={`${caption} · 25% of every fee burns PRISM`}
             color="#f59e0b"
             range="24h"
             bucketMs={data.bucketMs}

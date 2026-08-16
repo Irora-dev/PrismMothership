@@ -60,7 +60,7 @@ export default function SpectrumPage() {
   });
   const [data, setData] = useState<SpectrumChartsPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  // Fees-earned card view: every basket's full fee, or only PRISM's fixed 10%.
+  // Fees-earned card view: every basket's full fee, or only PRISM's fixed 25%.
   const [feesView, setFeesView] = useState<"total" | "prism">("total");
   const reqRef = useRef(0);
 
@@ -233,7 +233,7 @@ export default function SpectrumPage() {
                     caption={
                       feesView === "total"
                         ? `${caption} · every basket's full fee`
-                        : `${caption} · the fixed 10% that buys & burns PRISM`
+                        : `${caption} · the fixed 25% that buys & burns PRISM`
                     }
                     range={range}
                     bucketMs={data.bucketMs}
@@ -324,7 +324,7 @@ export default function SpectrumPage() {
                   prismUsd={feed.stats?.prismUsd ?? 0}
                   prismSupply={feed.stats?.supply ?? 0}
                   title="Live basket activity"
-                  info="Every basket buy, sell, and launch across Ethereum & Base, the moment it lands on-chain. Each basket sets its own trading fee (1–3%), and a fixed 10% of every fee is used to buy and burn PRISM."
+                  info="Every basket buy, sell, and launch across Ethereum & Base, the moment it lands on-chain. Each basket sets its own trading fee (1–3%), and a fixed 25% of every fee is used to buy and burn PRISM."
                   filters={FEED_FILTERS}
                   include={isSpectrumEvent}
                   link={{ href: "#baskets", label: "All baskets" }}
@@ -382,7 +382,7 @@ export default function SpectrumPage() {
             <div className="spectrum-divider w-full mt-2.5" />
           </div>
           <p className="mt-3 mb-7 text-slate-300 leading-relaxed max-w-xl">
-            A fixed 10% of every basket fee accrues to buy &amp; burn{" "}
+            A fixed 25% of every basket fee accrues to buy &amp; burn{" "}
             <span className="spectrum-text-gradient font-semibold">PRISM</span>. Each basket burns once its accrued share
             reaches <span className="font-semibold text-slate-100">0.3 ETH</span>. Here&apos;s how close each one is,
             across Ethereum and Base.

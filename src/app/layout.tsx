@@ -1,3 +1,4 @@
+import { siteUrl } from "@/lib/site-url";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./fonts.css";
@@ -15,44 +16,39 @@ export const metadata: Metadata = {
   // tags and canonical links pointing at someone else's dead site. There is no
   // safe constant to put here, so there is no constant: with nothing configured
   // Next falls back to the request's own origin, which is always right.
+  // one shared resolver (lib/site-url) — robots.txt and the sitemap need the
+  // identical answer, and three copies of "which host are we" is how one ends
+  // up naming a domain that 404s
   metadataBase: (() => {
-    const configured =
-      process.env.URL ||
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      process.env.DEPLOY_PRIME_URL ||
-      (() => {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          return (require("../../site.config.json") as { siteUrl?: string }).siteUrl || "";
-        } catch {
-          return "";
-        }
-      })();
-    try {
-      return configured ? new URL(configured) : undefined;
-    } catch {
-      return undefined;   // a malformed env must not take the whole page down
-    }
+    const base = siteUrl();
+    return base ? new URL(base) : undefined;
   })(),
   title: "The Prism Mothership",
   description:
     "An informational dashboard for the Prism token ecosystem: every buy-and-burn, every trade, every basket launch, shown live as it lands on-chain. Not investment advice.",
+  // No og/twitter TITLE pinned here on purpose: unset, each page's own tab
+  // title flows into its share card ("The money map · The Prism Mothership"),
+  // where a pinned root title made every unfurl on the site read identically.
+  // The tagline lives in the descriptions, which pages rarely override.
   openGraph: {
-    title: "The Prism Mothership · the Prism ecosystem, live",
     description:
       "Every buy-and-burn and on-chain event across Prism and Spectrum, shown live.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Prismbeat · the ecosystem, live",
     description:
       "Every buy-and-burn and on-chain event across Prism and Spectrum, shown live.",
   },
+  // installed-app chrome on iOS (pairs with manifest.ts for Android/desktop)
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Mothership" },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#030409", // the shell's actual ground, so mobile browser chrome matches
+  // dark-only site: without this, Windows/Linux scrollbars and native form
+  // controls render LIGHT and glare against the near-black ground
+  colorScheme: "dark",
   width: "device-width",
   initialScale: 1,
 };

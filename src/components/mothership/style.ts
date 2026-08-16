@@ -71,7 +71,7 @@ export const APPS: MothershipApp[] = [
     name: "Spectrum Baskets",
     tagline: "One token, a whole thesis",
     blurb:
-      "Launch and trade basket tokens on Ethereum, Base & Robinhood Chain. Every basket fee splits on-chain, a fixed 10% buys and burns PRISM.",
+      "Launch and trade basket tokens on Ethereum, Base & Robinhood Chain. Every basket fee splits on-chain, a fixed 25% buys and burns PRISM.",
     href: "https://spectrumindexes.xyz",
     external: true,
     color: C.purple,
@@ -103,7 +103,7 @@ export const BUILD_SLOT = {
 // The Mothership's own instruments — site surfaces, not apps.
 export const INSTRUMENTS: { name: string; href: string }[] = [
   { name: "Telemetry", href: "/charts" },
-  { name: "Burn pipeline", href: "/burn" },
+  { name: "Burn crank", href: "/burn" },
   { name: "Radio", href: "/radio" },
   { name: "Studio", href: "/studio" },
   { name: "Contracts", href: "/contracts" },

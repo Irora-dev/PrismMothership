@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "*": ["public/radio/**", "**/*.mp3", "**/*.wav", "**/*.m4a", "**/*.flac"],
   },
+  // The card renderer reads the brand TTFs off disk (Satori needs the bytes,
+  // and a self-origin fetch from inside a function has burned us before), so
+  // they have to be traced INTO the function bundle. ~120KB for all four.
+  outputFileTracingIncludes: {
+    "/api/card": ["public/fonts/ttf/**"],
+  },
 };
 
 export default nextConfig;

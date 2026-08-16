@@ -3,6 +3,7 @@
 import { forwardRef, useRef, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { PixelRainbow } from "@/components/effects/pixel-rainbow";
 import { squarify } from "@/lib/spectrum/treemap";
+import { bentoWeight, TILE_INSET } from "@/lib/spectrum/bento-style";
 import { tokenVisual } from "@/lib/spectrum/token-visual";
 
 // The 1200×630 social-post card — the live design surface for the auto-share
@@ -86,7 +87,7 @@ const BASE: Record<SocialVariant, Partial<Record<SocialElId, ElBase>>> = {
 // A static bento treemap at a fixed box size (px), colored by real token brand.
 function Bento({ items, w, h }: { items: SocialBentoItem[]; w: number; h: number }) {
   const rects = squarify(
-    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address || i.symbol, weight: Math.pow(i.weightPct, 0.65) })),
+    items.filter((i) => i.weightPct > 0).map((i) => ({ ticker: i.address || i.symbol, weight: bentoWeight(i.weightPct) })),
     w,
     h,
   );
@@ -110,7 +111,8 @@ function Bento({ items, w, h }: { items: SocialBentoItem[]; w: number; h: number
                 borderRadius: 16,
                 overflow: "hidden",
                 background: vis.color,
-                boxShadow: "inset 0 2px 0 rgba(255,255,255,0.28), inset 0 -6px 14px rgba(0,0,0,0.24)",
+                // was 0.28/-6px/14px — the one renderer that had drifted; converged
+                boxShadow: TILE_INSET.lg,
               }}
             >
               <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0) 36%, rgba(0,0,0,0.18))" }} />

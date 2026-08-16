@@ -21,16 +21,16 @@ const TERM_GREEN = "#4ade80";
 
 // how our own dapp wires PRISM in — the verified SpectrumBasket constants
 const SNIPPET = [
-  ["cm", "// how our own dapp wires it in (SpectrumBasket, live on 3 chains)"],
+  ["cm", "// how our own dapp wires it in (SpectrumBasket, current lineage)"],
   ["nl", ""],
-  ["kw", "uint256 "], ["id", "public constant "], ["fn", "BURN_SHARE_BPS"], ["pl", " = "], ["num", "1000"], ["pl", ";  "], ["cm", "// 10% of fees → buy & burn PRISM"],
+  ["kw", "uint256 "], ["id", "public constant "], ["fn", "BURN_SHARE_BPS"], ["pl", " = "], ["num", "2500"], ["pl", ";  "], ["cm", "// 25% of fees → buy & burn PRISM"],
   ["nl", ""],
   ["kw", "uint256 "], ["id", "public constant "], ["fn", "INTERFACE_SHARE_BPS"], ["pl", " = "], ["num", "555"], ["pl", "; "], ["cm", "// 5.55% → the routing app"],
 ] as const;
 
 const SNIPPET_RAW =
-  "// how our own dapp wires it in (SpectrumBasket, live on 3 chains)\n" +
-  "uint256 public constant BURN_SHARE_BPS = 1000;  // 10% of fees -> buy & burn PRISM\n" +
+  "// how our own dapp wires it in (SpectrumBasket, current lineage)\n" +
+  "uint256 public constant BURN_SHARE_BPS = 2500;  // 25% of fees -> buy & burn PRISM\n" +
   "uint256 public constant INTERFACE_SHARE_BPS = 555; // 5.55% -> the routing app";
 
 const TERMINAL_RAW =

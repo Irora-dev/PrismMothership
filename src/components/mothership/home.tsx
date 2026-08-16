@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { PulseStats } from "@/lib/feed/types";
 import { fmtEth, fmtPrism, fmtUsd } from "@/lib/feed/format";
+import { BASKET_BURN_SHARE } from "@/lib/chain/constants";
 import { PixelRainbow } from "@/components/effects/pixel-rainbow";
 import { StartRadioButton } from "@/components/radio/start-radio";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { usePolledJson } from "@/hooks/usePolledJson";
+import { MiniMoneyMap } from "./mini-money-map";
 import { C, MONO, RAINBOW, glass, glow } from "./style";
 import { AmbientBlooms } from "./blooms";
 import { HeroVideoBackdrop } from "./hero-backdrop";
 import { SwipeRow } from "./swipe-row";
+import { FeePipelineStrip } from "./fee-pipeline";
 import { BasketBento, type BentoItem } from "@/components/spectrum/basket-bento";
 
 // ── The marketing face of the Mothership ─────────────────────────────────────
@@ -46,7 +50,7 @@ const FLYWHEEL: { step: string; color: string; title: string; body: string; href
     step: "02",
     color: "#9D00FF",
     title: "Portfolios & baskets",
-    body: "A fixed 10% of every basket fee buys and burns PRISM. Portfolio joins soon.",
+    body: "25% of every basket fee buys and burns PRISM. Portfolio joins soon.",
     href: "/spectrum",
     link: "See basket activity",
   },
@@ -128,7 +132,31 @@ function CollectibleCard({
   const onLeave = () => setTilt({ rx: 0, ry: 0, mx: 50, my: 30, live: false });
 
   return (
-    <div style={{ perspective: 900 }} onClick={onOpen} role={onOpen ? "link" : undefined} className={onOpen ? "cursor-pointer" : ""}>
+    // role="link" promises this is interactive, so it has to be reachable and
+    // operable without a mouse: focusable, Enter/Space activated, and wearing a
+    // visible ring when focused by keyboard. It carried the role and none of
+    // the three, so the whole app store was mouse-only.
+    <div
+      style={{ perspective: 900 }}
+      onClick={onOpen}
+      onKeyDown={
+        onOpen
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen();
+              }
+            }
+          : undefined
+      }
+      role={onOpen ? "link" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      className={
+        onOpen
+          ? "cursor-pointer rounded-3xl outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          : ""
+      }
+    >
       <div
         ref={ref}
         onPointerMove={onMove}
@@ -282,7 +310,31 @@ export function MothershipHome() {
   const router = useRouter();
   // one live system for everything: stats at 4s cadence plus SESSION totals —
   // the same while-you-watch machinery the radio tally runs on
-  const { stats, session } = useActivityFeed(4000);
+  const { stats, session, events } = useActivityFeed(4000);
+  const [feeRange, setFeeRange] = useState<"24h" | "7d" | "all">("24h");
+  // usePolledJson instead of a swallowed catch: a dead charts route used to
+  // freeze these figures silently; now `stale` marks them in the card label
+  const { data: basketCharts, stale: basketFeesStale } = usePolledJson<{
+    buckets?: number[];
+    feesEthUsd?: number[];
+    feesBaseUsd?: number[];
+    feesHoodUsd?: number[];
+  }>("/api/spectrum/charts", 120_000);
+  const basketFees = useMemo(() => {
+    if (!basketCharts) return null;
+    const b = basketCharts.buckets ?? [];
+    const series = [basketCharts.feesEthUsd, basketCharts.feesBaseUsd, basketCharts.feesHoodUsd];
+    const since = (ms: number) => {
+      const cut = Date.now() - ms;
+      let t = 0;
+      b.forEach((ts, i) => {
+        if (ts < cut) return;
+        for (const arr of series) t += arr?.[i] ?? 0;
+      });
+      return t;
+    };
+    return { d1: since(86_400_000), d7: since(7 * 86_400_000) };
+  }, [basketCharts]);
 
   // the Baskets card wears the spectrum site's own bento (BasketBento) fed
   // LIVE weights. the designer art-directed the tile set (2026-08-03: FRONG + Index
@@ -333,6 +385,23 @@ export function MothershipHome() {
   const ethUsd = stats?.ethUsd ?? 0;
   const prismUsd = stats?.prismUsd ?? 0;
   const lifetimeUsd = stats ? stats.feesEthTotal * ethUsd + stats.feesPrismTotal * prismUsd : 0;
+  // each range is a window the feed already measures — nothing is interpolated
+  const feeWindow = (() => {
+    if (!stats) return { usd: 0, label: "" };
+    const basketAll = stats.indexFeesTotal * ethUsd;
+    // The basket half is a separate read, and it was swallowing its own failure:
+    // the figure quietly fell back to pool-fees-only while the label went on
+    // claiming "PRISM pool + baskets". An incomplete number that says it is
+    // complete is worse than a missing one, so the label follows the data.
+    const withBaskets = basketFees != null;
+    // a frozen basket read keeps its last figures but SAYS they froze
+    const src = withBaskets ? (basketFeesStale ? "PRISM pool + baskets · stale" : "PRISM pool + baskets") : "PRISM pool only";
+    if (feeRange === "24h")
+      return { usd: stats.feesToHolders24h * ethUsd + (basketFees?.d1 ?? 0), label: `${src} · 24h` };
+    if (feeRange === "7d")
+      return { usd: stats.feesToHolders7d * ethUsd + (basketFees?.d7 ?? 0), label: `${src} · 7d` };
+    return { usd: lifetimeUsd + basketAll, label: "PRISM pool + baskets · all time" };
+  })();
   // revenue that has landed SINCE this page opened (live session tally)
   const watchUsd = session.ethVolume * ethUsd + session.indexFeesUsd;
   const burnedPct = stats && stats.cap > 0 ? (stats.totalBurned / stats.cap) * 100 : 0;
@@ -464,6 +533,12 @@ export function MothershipHome() {
         </div>
       </section>
 
+      {/* the fee pipeline in one live line, sitting above the stats band —
+          the whole burn machine at a glance, opening the command deck */}
+      <section className="mt-14">
+        <FeePipelineStrip stats={stats} events={events} />
+      </section>
+
       {/* ── live stats band — on phones lifetime leads full-width and the two
           smaller stats pair beside each other (the designer 1254); tablet+ keeps the
           three-across row ── */}
@@ -488,15 +563,41 @@ export function MothershipHome() {
             </p>
           </div>
           <div className="relative overflow-hidden rounded-2xl p-4 md:p-6" style={{ ...glass, borderTop: `2px solid ${C.cyan}80` }}>
-            <Label dot={C.cyan}>Baskets live</Label>
+            <div className="flex items-start justify-between gap-2">
+              <Label dot={C.cyan}>Fees earned</Label>
+              {/* the range picker: every figure is a real window the feed already
+                  carries (24h · 7d · all time), so no range invents a number */}
+              <div className="flex gap-1">
+                {(["24h", "7d", "all"] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setFeeRange(r)}
+                    className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors"
+                    style={
+                      feeRange === r
+                        ? { background: `${C.cyan}26`, color: C.cyan, border: `1px solid ${C.cyan}4d` }
+                        : { color: "#5b6572", border: "1px solid rgba(255,255,255,0.08)" }
+                    }
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="text-2xl font-light tracking-tight text-white md:text-4xl" style={glow(C.cyan)}>
-              {stats ? stats.indexCount : dash}
+              {stats ? fmtUsd(feeWindow.usd) : dash}
             </div>
             <p className="mt-2 text-xs text-slate-500" style={{ fontFamily: MONO }}>
-              across Ethereum · Base · Robinhood
+              {feeWindow.label}
             </p>
           </div>
         </div>
+      </section>
+
+      {/* ── the money map, in one glance — a door to /flow (the designer, 2026-08-16) ── */}
+      <section className="mt-6">
+        <MiniMoneyMap />
       </section>
 
       {/* ── the app store: collectible cards ── */}
@@ -595,7 +696,7 @@ export function MothershipHome() {
             }
             visit="Visit Spectrum ↗"
             main={{ label: "Fees generated · all time", value: stats ? fmtUsd(stats.indexFeesTotal * ethUsd) : "—" }}
-            burn={{ label: "To the burn · 10% of fees", value: stats ? fmtUsd(stats.indexFeesTotal * ethUsd * 0.1) : "—" }}
+            burn={{ label: "To the burn · 25% of fees", value: stats ? fmtUsd(stats.indexFeesTotal * ethUsd * BASKET_BURN_SHARE) : "—" }}
           />
           <CollectibleCard
             name="Spectrum Portfolio"

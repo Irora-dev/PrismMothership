@@ -24,6 +24,9 @@ interface WireEvt {
   d?: number; // tradeUsd
   w?: "buy" | "sell"; // side
   p?: number; // prism
+  f?: number; // feeUsd (batch)
+  g?: number; // legs (batch)
+  h?: number; // burnUsd (batch — the fee's delivered burn share)
 }
 
 const b64url = {
@@ -52,6 +55,9 @@ export function encodeEvent(e: ActivityEvent): string {
     d: e.tradeUsd,
     w: e.side,
     p: e.prism,
+    f: e.feeUsd,
+    g: e.legs,
+    h: e.burnUsd,
   };
   for (const k of Object.keys(w) as (keyof WireEvt)[]) if (w[k] === undefined) delete w[k];
   return b64url.enc(JSON.stringify(w));
@@ -63,8 +69,9 @@ function noteFor(w: WireEvt): string | undefined {
   const name = w.l ?? (w.y ? `$${w.y}` : undefined);
   if (w.k === "launch") return name ? `${name} launched on Spectrum. The launch auction ETH buys & burns PRISM` : undefined;
   if (w.k === "fee" && w.s === "spectrum-index")
-    return `${w.y ? `$${w.y} ` : ""}${w.w ?? "trade"} on ${w.c === "base" ? "Base" : "Ethereum"}. 10% of the fee buys & burns PRISM`;
+    return `${w.y ? `$${w.y} ` : ""}${w.w ?? "trade"} on ${w.c === "base" ? "Base" : "Ethereum"}. 25% of the fee buys & burns PRISM`;
   if (w.k === "burn") return "Basket revenue bought & burned PRISM";
+  if (w.k === "batch") return "A batched portfolio execution: one signature, every leg filled on-chain";
   return undefined;
 }
 
@@ -88,6 +95,9 @@ export function decodeEvent(param: string): ActivityEvent | null {
       tradeUsd: w.d,
       side: w.w,
       prism: w.p,
+      feeUsd: w.f,
+      legs: w.g,
+      burnUsd: w.h,
       note: noteFor(w),
     };
   } catch {
@@ -102,6 +112,10 @@ export function decodeEvent(param: string): ActivityEvent | null {
  *  decoding. */
 export function eventShareUrl(e: ActivityEvent): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "https://prismbeat.netlify.app";
-  if (e.txHash) return `${origin}/spectrum?tx=${e.txHash}${e.chain === "base" ? "&c=b" : ""}`;
+  // Batches take the self-contained ?evt= form: the ?tx= resolver
+  // (event-from-tx) only reconstructs BASKET events, so a batch short link
+  // would misrender — and the fat form survives feed retention anyway, which
+  // is exactly what a marketing link needs.
+  if (e.txHash && e.kind !== "batch") return `${origin}/spectrum?tx=${e.txHash}${e.chain === "base" ? "&c=b" : ""}`;
   return `${origin}/spectrum?evt=${encodeEvent(e)}`;
 }

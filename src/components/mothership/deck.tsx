@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import type { ActivityEvent, PulseStats } from "@/lib/feed/types";
+import { txUrl } from "@/lib/chain/constants";
 import { fmtEth, fmtPrism, fmtUsd, fmtUsdFull } from "@/lib/feed/format";
-import { APPS, BUILD_SLOT, C, INSTRUMENTS, MONO, glass, glow } from "./style";
+import { C, MONO, glass, glow } from "./style";
 import { AmbientBlooms } from "./blooms";
-import { AppIcon } from "./app-icon";
 import { SwipeRow } from "./swipe-row";
+import { FeePipeline } from "./fee-pipeline";
+import { TimeAgo } from "./time-ago";
 
 // ── THE PRISM MOTHERSHIP — the command deck ──────────────────────────────────
 // the designer's chosen direction (2026-08-02, from his mockup): near-black space
@@ -25,17 +27,11 @@ import { SwipeRow } from "./swipe-row";
 // the deck's entrance: each panel materializes in sequence (the designer's intro ask,
 // 2026-08-03). One-shot, sub-second, panels only — data inside stays live.
 const deckIn = (i: number): CSSProperties => ({
-  animation: "ms-deck-in 0.7s cubic-bezier(0.16,1,0.3,1) both",
-  animationDelay: `${i * 90}ms`,
+  // one shorthand, delay folded in — animation + animationDelay on the same
+  // element is the React style-conflict warning (was the dev overlay's 4 issues)
+  animation: `ms-deck-in 0.7s cubic-bezier(0.16,1,0.3,1) ${i * 90}ms both`,
 });
 
-function ago(ts: number): string {
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
 
 function Label({ dot, children }: { dot?: string; children: React.ReactNode }) {
   return (
@@ -49,37 +45,157 @@ function Label({ dot, children }: { dot?: string; children: React.ReactNode }) {
 export function MothershipDeck() {
   const [stats, setStats] = useState<PulseStats | null>(null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
-  const [queuedBurnUsd, setQueuedBurnUsd] = useState<number>(0);
+  const [sessionBurned, setSessionBurned] = useState(0);
+  const seenBurns = useRef<Set<string> | null>(null);
+  // "Since you arrived" is the most compelling thing on this site and it was
+  // used exactly once, for PRISM burnt, in the fee pipeline. The same session
+  // watch counts trades and launches too. Only things that can be counted
+  // OUTRIGHT go in here: fee amounts are not summable across sources (a pool
+  // event carries its fee in eth, a basket event carries the trade SIZE in
+  // tradeUsd), so a combined "fees earned while you watched" would be adding
+  // two different quantities and calling the total revenue.
+  const seenAll = useRef<Set<string> | null>(null);
+  const [session, setSession] = useState({ trades: 0, launches: 0 });
+  // The feed polls every 10s and used to swallow every failure, so a dead route
+  // looked exactly like a quiet market: the last good numbers sat on screen
+  // indefinitely with nothing saying they had stopped moving. This only ever
+  // renders after several consecutive misses, so a single flake stays invisible
+  // and the surface is unchanged whenever the data is actually flowing.
+  const misses = useRef(0);
+  const pollRef = useRef(10_000);
+  const [feedStale, setFeedStale] = useState(false);
+
+  // ── The revenue window (the designer, 2026-08-13: "a date picker toggle next to the
+  // revenue for holders with the last 24h, 7d, 1m") ──────────────────────────
+  //
+  // All three windows come from ONE source, the charts store, and that is the
+  // whole point. PulseStats carries 24h, 7d and all-time but has no 1m at all,
+  // so a picker built on it would have had to reach into the charts store for
+  // its third option — and the two pipelines do not agree. Measured on the same
+  // minute: 24h reads $1,705 off the feed and $1,624 off the charts store, a 5%
+  // gap, because one is a rolling block window and the other is 24 whole hourly
+  // buckets. Neither is wrong; they are different questions. Mixing them inside
+  // one toggle would mean the number jumped for a reason no reader could see.
+  //
+  // The 24h figure therefore moves slightly from what the bar showed before.
+  // Revenue-per-Prism follows the same window for the same reason: two figures
+  // in one strip that cannot be divided into each other is a contradiction on
+  // its face.
+  const REV_RANGES = [
+    { key: "24h", api: "24h", label: "last 24 hours" },
+    { key: "7d", api: "1w", label: "last 7 days" },
+    { key: "1m", api: "1m", label: "last 30 days" },
+  ] as const;
+  type RevKey = (typeof REV_RANGES)[number]["key"];
+  const [revRange, setRevRange] = useState<RevKey>("24h");
+  const [revUsd, setRevUsd] = useState<Partial<Record<RevKey, number>>>({});
+  const [revFailed, setRevFailed] = useState(false);
+
+  useEffect(() => {
+    if (revUsd[revRange] != null) return; // each window is fetched once
+    const spec = REV_RANGES.find((r) => r.key === revRange);
+    if (!spec) return;
+    let alive = true;
+    fetch(`/api/charts?range=${spec.api}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("charts unavailable"))))
+      .then((d: { feesUsd?: number[] }) => {
+        if (!alive) return;
+        setRevUsd((prev) => ({ ...prev, [revRange]: (d.feesUsd ?? []).reduce((a, b) => a + (b || 0), 0) }));
+        setRevFailed(false);
+      })
+      .catch(() => {
+        if (alive) setRevFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revRange, revUsd]);
 
   useEffect(() => {
     let alive = true;
     const tick = () =>
       fetch("/api/feed", { cache: "no-store" })
         .then((r) => r.json())
-        .then((d: { stats?: PulseStats; events?: ActivityEvent[] }) => {
+        .then((d: { stats?: PulseStats; events?: ActivityEvent[]; pollMs?: number }) => {
+          if (d.pollMs && d.pollMs >= 1000) pollRef.current = d.pollMs;
           if (!alive) return;
           if (d.stats) setStats(d.stats);
-          if (d.events) setEvents(d.events);
+          if (d.events) {
+            setEvents(d.events);
+            const burns = d.events.filter((e) => e.kind === "burn" && (e.prism ?? 0) > 0);
+            if (seenBurns.current === null) {
+              // first batch is the baseline, not a burst of arrivals
+              seenBurns.current = new Set(burns.map((e) => e.id));
+            } else {
+              let added = 0;
+              for (const e of burns) {
+                if (seenBurns.current.has(e.id)) continue;
+                seenBurns.current.add(e.id);
+                added += e.prism ?? 0;
+              }
+              if (added > 0) setSessionBurned((v) => v + added);
+            }
+            // the same baseline-then-count rule, across every event kind
+            if (seenAll.current === null) {
+              seenAll.current = new Set(d.events.map((e) => e.id));
+            } else {
+              let trades = 0;
+              let launches = 0;
+              for (const e of d.events) {
+                if (seenAll.current.has(e.id)) continue;
+                seenAll.current.add(e.id);
+                if (e.kind === "launch") launches++;
+                else if (e.side) trades++;
+              }
+              if (trades || launches) setSession((v) => ({ trades: v.trades + trades, launches: v.launches + launches }));
+            }
+          }
+          misses.current = 0;
+          if (alive) setFeedStale(false);
         })
-        .catch(() => {});
-    tick();
-    const t = setInterval(tick, 10_000);
-    return () => {
-      alive = false;
-      clearInterval(t);
+        .catch(() => {
+          // three strikes (~30s) before saying anything, so a flake and an
+          // outage never look the same
+          misses.current += 1;
+          if (alive && misses.current >= 3) setFeedStale(true);
+        });
+    // The cadence is the SERVER'S to set, not ours. /api/feed publishes pollMs
+    // (and caches itself at exactly that interval), the old pulse hook has
+    // always honoured it, and the deck hardcoded 10s — so NEXT_PUBLIC_LIVE_POLL_MS
+    // moved every surface except the main one.
+    //
+    // It also polls on a self-scheduling timeout rather than a fixed interval,
+    // which lets it stop dead on a hidden tab and fire immediately on return.
+    // The old behaviour kept hitting the heaviest route on the site every ten
+    // seconds for a tab nobody was looking at, and then made you wait up to ten
+    // more seconds for fresh numbers when you came back to it.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      timer = setTimeout(run, pollRef.current);
     };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/spectrum/charts")
-      .then((r) => r.json())
-      .then((d: { queuedBurnUsd?: number }) => {
-        if (alive && typeof d.queuedBurnUsd === "number") setQueuedBurnUsd(d.queuedBurnUsd);
-      })
-      .catch(() => {});
+    const run = () => {
+      tick().finally(() => {
+        if (alive) schedule();
+      });
+    };
+    const onVis = () => {
+      if (!alive) return;
+      if (document.visibilityState === "hidden") {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      } else {
+        run(); // straight back to fresh, no waiting out the remainder
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    run();
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
@@ -87,10 +203,6 @@ export function MothershipDeck() {
   const prismUsd = stats?.prismUsd ?? 0;
   const lifetimeUsd = stats ? stats.feesEthTotal * ethUsd + stats.feesPrismTotal * prismUsd : 0;
   const todayUsd = stats ? stats.feesToHolders24h * ethUsd : 0;
-  const weekUsd = stats ? stats.feesToHolders7d * ethUsd : 0;
-  const perPrism24h = stats && stats.supply > 0 ? (stats.feesToHolders24h / stats.supply) * ethUsd : 0;
-  const burnedPct = stats && stats.cap > 0 ? (stats.totalBurned / stats.cap) * 100 : 0;
-  const burned24Pct = stats && stats.totalBurned > 0 ? (stats.prismBurnedToday / stats.totalBurned) * 100 : 0;
 
   const spectrumEvents = useMemo(
     () =>
@@ -98,6 +210,7 @@ export function MothershipDeck() {
         .filter(
           (e) =>
             e.kind === "launch" ||
+            e.kind === "batch" || // Spectrum Portfolio batches (the batcher watch)
             e.source === "spectrum-index" ||
             e.source === "spectrum-auction" ||
             (e.kind === "burn" && e.source !== "prism-pool"),
@@ -112,59 +225,139 @@ export function MothershipDeck() {
 
   const dash = <span className="text-slate-600">—</span>;
 
+  // The selected window's revenue, and the same window divided by supply, so the
+  // two figures in the strip always answer to each other.
+  const revWindowUsd = revUsd[revRange] ?? null;
+  const revPerPrism = revWindowUsd != null && stats && stats.supply > 0 ? revWindowUsd / stats.supply : null;
+
   return (
-    <main className="relative z-10 mx-auto w-full max-w-[1536px] space-y-6 p-4 sm:p-6">
+    <main className="relative z-10 mx-auto w-full max-w-[1536px] space-y-3 p-4 sm:px-6 sm:py-3">
       <AmbientBlooms />
 
-      {/* ── hero grid: burn | revenue core | baskets ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* burn card — below lg the two burn figures pair side by side and the
-            queued block steps back (the designer's 1254 pass: less information on m/t) */}
-        <div className="group relative overflow-hidden rounded-2xl p-6 lg:col-span-3" style={{ ...glass, ...deckIn(0) }}>
-          <div
-            className="absolute right-0 top-0 h-32 w-32 rounded-full blur-2xl transition-all duration-500"
-            style={{ background: `${C.orange}0d` }}
-          />
-          <div className="grid grid-cols-2 gap-4 lg:block">
-            <div>
-              <Label dot={C.orange}>Total PRISM burnt</Label>
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-light tracking-tight text-white lg:text-4xl" style={glow(C.orange)}>
-                  {stats ? fmtPrism(stats.totalBurned) : dash}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-slate-500" style={{ fontFamily: MONO }}>
-                of {stats ? stats.cap.toLocaleString("en-US") : "5,000"} cap · {burnedPct.toFixed(2)}%
-              </p>
-            </div>
+      {feedStale && (
+        <div
+          className="relative flex items-center gap-2 rounded-xl px-4 py-2 text-[11px]"
+          style={{ background: "rgba(255,0,60,0.08)", border: "1px solid rgba(255,0,60,0.25)", color: "#fca5a5" }}
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: C.red }} />
+          The live feed stopped answering. These figures are the last ones that came through, not
+          the current ones.
+        </div>
+      )}
 
-            <div className="lg:mt-8 lg:border-t lg:border-white/5 lg:pt-6">
-              <Label>Burned · last 24h</Label>
-              <div className="text-2xl font-light text-white" style={{ fontFamily: MONO }}>
-                {stats ? fmtPrism(stats.prismBurnedToday) : dash}
-              </div>
-              <div className="mt-1 text-[10px] text-slate-500">
-                PRISM · {burned24Pct.toFixed(1)}% of all burns ever
-              </div>
+      {/* ── the top bar (the designer 2026-08-12 2305): protocol revenue 24h · total
+          PRISM burnt · revenue per Prism 24h, one strip, ABOVE the lifetime
+          core. Today/This week/All time are gone — the burn takes that slot. */}
+      <div
+        className="relative flex flex-col items-center justify-between gap-6 overflow-hidden rounded-2xl px-6 py-4 lg:flex-row lg:px-8"
+        style={{ ...glass, border: `1px solid ${C.cyan}33`, ...deckIn(0) }}
+      >
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: `linear-gradient(90deg, ${C.cyan}0d, transparent, ${C.orange}0d)` }}
+        />
+        <div className="relative z-10 flex w-full flex-1 flex-col">
+          {/* flex-wrap + a nowrap label: on a phone the picker drops below the
+              label as a unit. Without this the LABEL wrapped mid-phrase under
+              the picker ("PROTOCOL REVENUE TO / HOLDERS"), which read broken. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Label dot={C.cyan}>
+              <span className="whitespace-nowrap">Protocol revenue to holders</span>
+            </Label>
+            <div className="-mt-2 flex gap-1">
+              {REV_RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => setRevRange(r.key)}
+                  aria-pressed={revRange === r.key}
+                  className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60"
+                  style={
+                    revRange === r.key
+                      ? { background: `${C.cyan}26`, color: C.cyan, border: `1px solid ${C.cyan}4d` }
+                      : { color: "#5b6572", border: "1px solid rgba(255,255,255,0.08)" }
+                  }
+                >
+                  {r.key}
+                </button>
+              ))}
             </div>
           </div>
-
-          {/* the audit's payoff: queued burns are not missing burns (desktop only) */}
-          {queuedBurnUsd > 0.5 && (
-            <div className="mt-6 hidden rounded-xl border px-3.5 py-2.5 lg:block" style={{ borderColor: `${C.orange}33`, background: `${C.orange}0a` }}>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.orange }}>
-                Queued to burn
-              </div>
-              <div className="mt-0.5 text-[15px] font-bold text-white" style={{ fontFamily: MONO }}>
-                {fmtUsdFull(queuedBurnUsd)}
-              </div>
-            </div>
-          )}
+          <div className="text-4xl font-bold tracking-tight text-white lg:text-5xl" style={glow(C.cyan)}>
+            {revWindowUsd != null ? fmtUsd(revWindowUsd) : revFailed ? dash : <span className="text-slate-600">…</span>}
+          </div>
         </div>
 
+        <div className="relative z-10 flex w-full flex-1 flex-col items-start px-0 text-left lg:items-center lg:border-l lg:border-r lg:border-white/10 lg:px-8 lg:text-center">
+          <Label dot={C.orange}>Total PRISM burnt</Label>
+          <div className="text-4xl font-bold tracking-tight text-white lg:text-5xl" style={glow(C.orange)}>
+            {stats ? fmtPrism(stats.totalBurned) : dash}
+          </div>
+        </div>
+
+        <div className="relative z-10 flex w-full flex-1 flex-col items-start text-left lg:items-end lg:text-right">
+          <Label>Revenue per Prism · {REV_RANGES.find((r) => r.key === revRange)?.label}</Label>
+          <div className="text-4xl font-bold tracking-tight lg:text-5xl" style={{ color: C.cyan, ...glow(C.cyan) }}>
+            {revPerPrism == null ? dash : revPerPrism >= 0.01 ? `$${revPerPrism.toFixed(2)}` : "<$0.01"}
+          </div>
+        </div>
+      </div>
+
+      {/* ── the heartbeat, and what has happened while you have been watching ──
+          eventsPerMin is computed on every feed response and was rendered only
+          on /spectrum through the old pulse components, so the one figure that
+          literally says "this much is happening per minute" was hidden on the
+          page fewest people land on. The session half appears only once
+          something has actually arrived: a row of zeros says the opposite of
+          what this strip is for. */}
+      {stats && (
+        <div
+          className="flex items-center gap-x-4 overflow-x-auto px-1 text-[11px] text-slate-500"
+          style={{ scrollbarWidth: "none" }}
+        >
+          <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: C.green }} />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: C.green }} />
+            </span>
+            {/* A COUNT, not the per-minute rate. eventsPerMin is a 24-hour
+                average, so a genuinely busy day renders as "0.1 events/min",
+                which reads as a dead chain and undersells the same activity by
+                a factor of a thousand. The count it is derived from says the
+                identical thing and says it well. */}
+            <span style={{ fontFamily: MONO, color: "#94a3b8" }}>
+              {(stats.burnsToday + stats.feeEventsToday).toLocaleString("en-US")}
+            </span>
+            <span>on-chain events in the last 24h</span>
+          </span>
+          {(sessionBurned > 0 || session.trades > 0 || session.launches > 0) && (
+            <span className="flex shrink-0 items-center gap-x-2 whitespace-nowrap">
+              <span className="text-slate-600">since you arrived</span>
+              {session.trades > 0 && (
+                <span className="shrink-0" style={{ color: "#94a3b8" }}>
+                  <span style={{ fontFamily: MONO }}>{session.trades}</span> trade{session.trades === 1 ? "" : "s"}
+                </span>
+              )}
+              {sessionBurned > 0 && (
+                <span className="shrink-0" style={{ color: C.orange }}>
+                  <span style={{ fontFamily: MONO }}>{fmtPrism(sessionBurned)}</span> PRISM burnt
+                </span>
+              )}
+              {session.launches > 0 && (
+                <span className="shrink-0" style={{ color: C.purple }}>
+                  <span style={{ fontFamily: MONO }}>{session.launches}</span> basket{session.launches === 1 ? "" : "s"} launched
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── lifetime revenue LEFT · the fee collection system RIGHT ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* revenue core */}
         <div
-          className="relative flex min-h-[320px] items-center justify-center overflow-hidden rounded-2xl p-8 lg:col-span-6"
+          className="relative flex min-h-[164px] items-center justify-center overflow-hidden rounded-2xl p-6 lg:col-span-6"
           style={{ ...glass, border: `1px solid ${C.green}33`, ...deckIn(1) }}
         >
           <div
@@ -172,27 +365,27 @@ export function MothershipDeck() {
             style={{ background: `radial-gradient(circle at center, ${C.green}26 0%, rgba(0,0,0,0) 70%)` }}
           />
           <div
-            className="absolute left-1/2 top-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full border"
+            className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full border"
             style={{ borderColor: `${C.green}1a`, animation: "spin 12s linear infinite" }}
           />
           <div
-            className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed"
+            className="absolute left-1/2 top-1/2 h-[220px] w-[220px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed"
             style={{ borderColor: `${C.green}33`, animation: "spin 20s linear reverse infinite" }}
           />
 
           <div className="relative z-10 flex flex-col items-center text-center">
             <div
-              className="mb-6 flex items-center gap-2 rounded-full border px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em]"
+              className="mb-4 flex items-center gap-2 rounded-full border px-4 py-1 text-[10px] font-semibold uppercase tracking-[0.2em]"
               style={{ borderColor: `${C.green}33`, background: `${C.green}1a`, color: C.green }}
             >
               Lifetime revenue to holders
             </div>
-            <h1 className="mb-4 text-6xl font-black tracking-tighter text-white sm:text-7xl lg:text-8xl" style={glow(C.green)}>
+            <h1 className="mb-3 text-5xl font-black tracking-tighter text-white sm:text-6xl lg:text-[64px]" style={glow(C.green)}>
               <span style={{ color: `${C.green}cc` }}>$</span>
               {lifetimeUsd >= 100 ? Math.round(lifetimeUsd).toLocaleString("en-US") : lifetimeUsd.toFixed(2)}
             </h1>
             <div
-              className="flex items-center gap-6 rounded-xl border border-white/5 px-6 py-2 text-sm text-slate-400 backdrop-blur-md"
+              className="flex items-center gap-6 rounded-xl border border-white/5 px-5 py-1.5 text-sm text-slate-400 backdrop-blur-md"
               style={{ fontFamily: MONO, background: "rgba(3,4,9,0.5)" }}
             >
               <div className="flex items-center gap-2">
@@ -214,150 +407,82 @@ export function MothershipDeck() {
           <div className="absolute bottom-0 right-0 h-8 w-8 rounded-br-xl border-b border-r" style={{ borderColor: `${C.green}4d` }} />
         </div>
 
-        {/* baskets card */}
-        <div className="group relative overflow-hidden rounded-2xl p-6 lg:col-span-3" style={{ ...glass, ...deckIn(2) }}>
-          <div className="absolute left-0 top-0 h-32 w-32 rounded-full blur-2xl" style={{ background: `${C.cyan}0d` }} />
-          <div className="flex items-start justify-between">
-            <div>
-              <Label dot={C.cyan}>All baskets</Label>
-              {/* the count moves into the side-by-side pair below lg */}
-              <div className="hidden text-4xl font-light text-white lg:block" style={glow(C.cyan)}>
-                {stats ? stats.indexCount : dash}
+        {/* ── the fee collection system, top level (the designer 2026-08-12 2305):
+            every stream that collects fees, its live figures, where its cut
+            goes. The old burn/baskets cards' facts all live on: basket count
+            and revenue in the baskets row, the portfolio berth as the dark
+            row (no numbers until the batcher ceremony — desk w-…-136), the
+            queued burn inside the pipeline below. ── */}
+        <div className="relative flex flex-col overflow-hidden rounded-2xl p-5 lg:col-span-6" style={{ ...glass, ...deckIn(2) }}>
+          <div className="absolute right-0 top-0 h-32 w-32 rounded-full blur-2xl" style={{ background: `${C.cyan}0d` }} />
+          <div className="flex flex-1 flex-col justify-center gap-2">
+            {/* stream 1 — the PRISM pool itself */}
+            <div className="flex items-center justify-between gap-4 rounded-xl border px-4 py-2.5" style={{ borderColor: `${C.green}26`, background: `${C.green}0a` }}>
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-white">PRISM swap fees</div>
+                <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">ETH side to holders · PRISM side burns</div>
+              </div>
+              <div className="shrink-0 whitespace-nowrap text-right" style={{ fontFamily: MONO }}>
+                <div className="text-lg font-semibold" style={{ color: C.green }}>
+                  {stats ? fmtUsd(todayUsd) : dash}
+                </div>
+                <div className="text-[10px] text-slate-500">last 24h</div>
               </div>
             </div>
+
+            {/* stream 2 — the baskets */}
             <Link
               href="/spectrum"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-colors hover:bg-white/10"
-              title="Spectrum dashboard"
+              className="flex items-center justify-between gap-4 rounded-xl border px-4 py-2.5 transition-colors hover:bg-white/[0.04]"
+              style={{ borderColor: `${C.cyan}26`, background: `${C.cyan}0a` }}
             >
-              <svg className="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            </Link>
-          </div>
-
-          {/* the chains as their logos, not words (the designer 1254) */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {(["ethereum", "base", "robinhood"] as const).map((c) => (
-              <span
-                key={c}
-                title={c[0].toUpperCase() + c.slice(1)}
-                className="grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-white/5"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/mothership/chain-${c}.png`} alt={c} className="h-4 w-4 rounded-full" />
-              </span>
-            ))}
-          </div>
-
-          {/* below lg the count and revenue read side by side (1254) */}
-          <div className="mt-6 grid grid-cols-2 items-end gap-4 border-t border-white/5 pt-5 lg:mt-8 lg:block lg:pt-6">
-            <div className="lg:hidden">
-              <Label dot={C.cyan}>All baskets</Label>
-              <div className="text-3xl font-light text-white" style={glow(C.cyan)}>
-                {stats ? stats.indexCount : dash}
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-white">
+                  {/* nowrap: "29 live" is one badge — without it, "live" orphaned
+                      onto its own line on a phone */}
+                  Spectrum baskets <span className="ml-1 whitespace-nowrap text-xs font-normal text-slate-400">{stats ? stats.indexCount : "—"} live</span>
+                </div>
+                <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">every trade fee splits · 25% buys &amp; burns PRISM</div>
               </div>
-            </div>
-            <div>
-              <Label>Basket revenue generated</Label>
-              <div className="flex flex-wrap items-baseline gap-2">
-                <div className="text-3xl font-light" style={{ color: C.cyan }}>
+              <div className="shrink-0 whitespace-nowrap text-right" style={{ fontFamily: MONO }}>
+                <div className="text-lg font-semibold" style={{ color: C.cyan }}>
                   {stats ? fmtUsd(stats.indexFeesTotal * ethUsd) : dash}
                 </div>
-                <div className="text-xs text-slate-500" style={{ fontFamily: MONO }}>
-                  Ξ{stats ? fmtEth(stats.indexFeesTotal) : "—"} · all-time
-                </div>
+                <div className="text-[10px] text-slate-500">Ξ{stats ? fmtEth(stats.indexFeesTotal) : "—"} · all-time</div>
               </div>
-            </div>
-          </div>
+            </Link>
 
-          {/* the SECOND spectrum system: Portfolio, as its own berth beside the
-              baskets (the designer, 2026-08-03). Honest empty state — its volume and
-              fee slots hold no number until the batcher contracts are on-chain
-              (addresses arrive via the ceremony ping; desk w-…-136). */}
-          <div className="mt-8 border-t border-white/5 pt-6">
-            <div className="flex items-center justify-between">
-              <Label dot={C.orange}>Spectrum Portfolio</Label>
+            {/* stream 3 — the portfolio berth stays dark until the ceremony.
+                Fee copy per SpectrumContracts' correction (2026-08-12, desk
+                w-…-395): the 50bps-flat ruling is SUPERSEDED — the fee is
+                caller-set, capped 2%, split 7:1 burn:integrator. Never
+                hard-code a rate; when this lights up, read it off the events. */}
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 px-4 py-2.5" style={{ background: "rgba(255,255,255,0.02)" }}>
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-slate-400">Spectrum Portfolio</div>
+                <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">a fee on every buy · a share of it buys &amp; burns PRISM</div>
+              </div>
               <span
-                className="rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                className="shrink-0 rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider"
                 style={{ background: `${C.orange}26`, color: C.orange, border: `1px solid ${C.orange}40` }}
               >
                 Launching soon
               </span>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Portfolio volume</div>
-                <div className="mt-1 text-xl font-light text-slate-600" style={{ fontFamily: MONO }}>
-                  —
-                </div>
-              </div>
-              <div>
-                <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Portfolio fees</div>
-                <div className="mt-1 text-xl font-light text-slate-600" style={{ fontFamily: MONO }}>
-                  —
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* ── revenue strip ── */}
-      <div
-        className="relative flex flex-col items-center justify-between gap-8 overflow-hidden rounded-2xl p-6 lg:flex-row lg:p-8"
-        style={{ ...glass, border: `1px solid ${C.cyan}33`, ...deckIn(3) }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ background: `linear-gradient(90deg, ${C.cyan}0d, transparent, ${C.cyan}0d)` }}
-        />
-        <div className="relative z-10 flex w-full flex-1 flex-col">
-          <Label dot={C.cyan}>Protocol revenue to holders</Label>
-          <div className="mb-2 text-5xl font-bold tracking-tight text-white lg:text-6xl" style={glow(C.cyan)}>
-            {stats ? fmtUsd(todayUsd) : dash}
-          </div>
-          <div
-            className="self-start rounded-sm border px-3 py-1 text-xs font-semibold uppercase tracking-widest"
-            style={{ borderColor: `${C.cyan}33`, background: `${C.cyan}1a`, color: C.cyan }}
-          >
-            last 24 hours
-          </div>
-        </div>
-
-        <div className="flex w-full flex-1 flex-col justify-center space-y-4 px-0 lg:border-l lg:border-r lg:border-white/10 lg:px-8">
-          {(
-            [
-              ["Today", todayUsd, stats?.feesToHolders24h],
-              ["This week", weekUsd, stats?.feesToHolders7d],
-              ["All time", lifetimeUsd, stats?.feesToHoldersTotal],
-            ] as const
-          ).map(([label, usd, eth]) => (
-            <div key={label} className="group flex items-center justify-between">
-              <span className="text-sm text-slate-400 transition-colors group-hover:text-white">{label}</span>
-              <div className="flex items-center gap-3 text-sm" style={{ fontFamily: MONO }}>
-                <span className="font-medium" style={{ color: C.cyan }}>
-                  {stats ? fmtUsd(usd) : "—"}
-                </span>
-                <span className="text-slate-600">Ξ{eth != null ? fmtEth(eth) : "—"}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="relative z-10 flex w-full flex-1 flex-col items-start text-left lg:items-end lg:text-right">
-          <Label>Revenue per Prism · last 24h</Label>
-          <div className="mb-2 text-5xl font-bold tracking-tight lg:text-6xl" style={{ color: C.cyan, ...glow(C.cyan) }}>
-            {stats ? (perPrism24h >= 0.01 ? `$${perPrism24h.toFixed(2)}` : "<$0.01") : dash}
-          </div>
-          <div className="max-w-[340px] text-[11px] leading-relaxed text-slate-500">per token held, from the trailing 24h</div>
-        </div>
+      {/* ── the pipeline: activity → buckets → the burn pool ── */}
+      <div style={deckIn(3)}>
+        <FeePipeline stats={stats} events={events} sessionBurned={sessionBurned} />
       </div>
 
-      {/* ── three columns: spectrum feed | prism feed | modules — a swipe
-          carousel below lg (the designer 1254) ── */}
+      {/* ── two columns: spectrum feed | prism feed — a swipe carousel below
+          lg. Apps aboard removed from /command (the designer, 2026-08-12 review):
+          the home page's app store owns that job; the deck is the data room. ── */}
       <div style={deckIn(4)}>
-      <SwipeRow desktopClass="lg:grid lg:grid-cols-3" itemClass="w-[88%] sm:w-[68%] md:w-[52%]">
+      <SwipeRow desktopClass="lg:grid lg:grid-cols-2" itemClass="w-[88%] sm:w-[68%] md:w-[52%]">
         <FeedColumn
           title="Spectrum overview"
           color={C.orange}
@@ -384,71 +509,6 @@ export function MothershipDeck() {
           ]}
         />
 
-        {/* the app store panel — apps that build on PRISM, statuses as facts */}
-        <div className="flex h-[500px] flex-col rounded-2xl" style={{ ...glass, borderTop: `2px solid ${C.purple}80` }}>
-          <div className="flex items-center gap-2 border-b border-white/5 p-5">
-            <div className="h-2 w-2 rounded-full" style={{ background: C.purple }} />
-            <h3 className="font-semibold text-white">Apps aboard</h3>
-          </div>
-          <div className="flex-1 space-y-4 overflow-y-auto p-5">
-            {APPS.map((m) => {
-              const inner = (
-                <div
-                  className={`group relative overflow-hidden rounded-xl border border-white/10 p-4 transition-all ${m.href ? "cursor-pointer hover:bg-white/5" : ""}`}
-                  style={{ background: "rgba(10,12,20,0.5)" }}
-                >
-                  <div className="relative z-10 flex items-start gap-4">
-                    <AppIcon name={m.name} color={m.color} />
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-white">
-                        {m.name}
-                        {m.external && <span className="ml-1.5 text-[10px] text-slate-500">↗</span>}
-                      </h4>
-                      <p className="mt-1 text-xs leading-relaxed text-slate-400">{m.blurb}</p>
-                      <div className="mt-3 flex items-center gap-2">
-                        <span
-                          className="rounded px-2 py-0.5 text-[10px] uppercase"
-                          style={{ background: `${m.color}26`, color: m.color, border: `1px solid ${m.color}40` }}
-                        >
-                          {m.status}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-              if (!m.href) return <div key={m.name}>{inner}</div>;
-              return m.external ? (
-                <a key={m.name} href={m.href} target="_blank" rel="noopener noreferrer" className="block">
-                  {inner}
-                </a>
-              ) : (
-                <Link key={m.name} href={m.href} className="block">
-                  {inner}
-                </Link>
-              );
-            })}
-
-            {/* the open slot */}
-            <Link href={BUILD_SLOT.href} className="block">
-              <div className="rounded-xl border border-dashed border-white/15 p-4 text-center transition-all hover:border-white/30 hover:bg-white/[0.02]">
-                <h4 className="text-sm font-bold text-white">+ {BUILD_SLOT.name}</h4>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">{BUILD_SLOT.blurb}</p>
-              </div>
-            </Link>
-          </div>
-          <div className="border-t border-white/5 px-5 py-3 text-[11px] text-slate-500">
-            Instruments:{" "}
-            {INSTRUMENTS.map((i, n) => (
-              <span key={i.href}>
-                <Link href={i.href} className="text-slate-400 transition-colors hover:text-white">
-                  {i.name}
-                </Link>
-                {n < INSTRUMENTS.length - 1 && " · "}
-              </span>
-            ))}
-          </div>
-        </div>
       </SwipeRow>
       </div>
     </main>
@@ -472,6 +532,27 @@ export function FeedColumn({
 }) {
   const [active, setActive] = useState(0);
   const shown = filters[active] ? events.filter(filters[active].test) : events;
+
+  // An event that landed two seconds ago looked exactly like one from an hour
+  // ago, which makes a live stream read as a static list. Arrivals now announce
+  // themselves once: the row drops in and its accent ring flashes out.
+  // The FIRST batch is the baseline, never an arrival — otherwise every visitor
+  // gets twenty-four rows stampeding in on load, which reads as a bug.
+  const seenIds = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const ids = events.map((e) => e.id);
+    if (seenIds.current === null) {
+      seenIds.current = new Set(ids);
+      return;
+    }
+    const added = ids.filter((id) => !seenIds.current!.has(id));
+    if (!added.length) return;
+    for (const id of added) seenIds.current.add(id);
+    setFresh(new Set(added));
+    const t = setTimeout(() => setFresh(new Set()), 1500);
+    return () => clearTimeout(t);
+  }, [events]);
   return (
     <div className="flex h-[500px] flex-col rounded-2xl" style={{ ...glass, borderTop: `2px solid ${color}80` }}>
       <div className="flex items-center justify-between border-b border-white/5 p-5">
@@ -501,10 +582,28 @@ export function FeedColumn({
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto p-2">
         {shown.length === 0 && <p className="p-4 text-xs leading-relaxed text-slate-500">{empty}</p>}
-        {shown.map((e) => (
-          <div
+        {shown.map((e) => {
+          // a row with a hash is a receipt: it opens the transaction itself,
+          // same rule as the burn chips and the money map's wire
+          const Row: React.ElementType = e.txHash ? "a" : "div";
+          const rowLink = e.txHash
+            ? { href: txUrl(e.txHash, e.chain ?? "ethereum"), target: "_blank", rel: "noopener noreferrer", title: "Open the transaction" }
+            : {};
+          return (
+          <Row
             key={e.id}
+            {...rowLink}
             className="group flex items-center justify-between rounded-xl border border-transparent p-3 transition-all hover:border-white/5 hover:bg-white/5"
+            style={
+              fresh.has(e.id)
+                ? ({
+                    // inline, because Tailwind v4 tree-shakes custom classes out
+                    // of globals.css; the keyframes themselves live there
+                    animation: "feed-pop 0.5s cubic-bezier(0.2,0.7,0.3,1.4) both, feed-flash 1.2s ease-out 0.1s forwards",
+                    "--ring": `${color}99`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             <div className="flex items-center gap-3">
               <div
@@ -537,40 +636,80 @@ export function FeedColumn({
               </div>
               <div>
                 <div className="text-sm text-white" style={{ fontFamily: MONO }}>
-                  {e.kind === "burn"
-                    ? fmtPrism(e.prism)
-                    : e.kind === "launch"
-                      ? (e.symbol ?? e.label ?? "New basket")
-                      : e.usd != null
-                        ? fmtUsd(e.usd)
-                        : e.eth != null
-                          ? `Ξ${fmtEth(e.eth)}`
-                          : "—"}
+                  {/* FEES lead, volume rides beside — a batch's funding was
+                      showing AS its fee (the designer, 2026-08-16: "$555 LP fee" on a
+                      $4.38-fee batch). Per kind: the fee field first, the
+                      trade/funding notional as the muted second figure. */}
+                  {(() => {
+                    if (e.kind === "burn") return fmtPrism(e.prism);
+                    if (e.kind === "launch") return e.symbol ?? e.label ?? "New basket";
+                    const fee =
+                      e.kind === "batch"
+                        ? e.feeUsd != null
+                          ? fmtUsd(e.feeUsd)
+                          : null
+                        : e.usd != null
+                          ? fmtUsd(e.usd)
+                          : e.eth != null
+                            ? `Ξ${fmtEth(e.eth)}`
+                            : null;
+                    const vol =
+                      e.kind === "batch"
+                        ? e.usd != null
+                          ? fmtUsd(e.usd)
+                          : null
+                        : e.tradeUsd != null
+                          ? fmtUsd(e.tradeUsd)
+                          : e.tradeEth != null
+                            ? `Ξ${fmtEth(e.tradeEth)}`
+                            : null;
+                    return (
+                      <>
+                        {fee ?? vol ?? "—"}
+                        {fee != null && vol != null && <span className="text-xs text-slate-500"> · {vol} vol</span>}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="text-[10px] uppercase tracking-wider text-slate-500">
                   {e.kind === "burn"
                     ? "PRISM burned"
                     : e.kind === "launch"
                       ? "Basket launched"
-                      : e.side
-                        ? e.side === "sell"
-                          ? "Basket sell"
-                          : "Basket buy"
-                        : "LP fee"}
+                      : e.kind === "batch"
+                        ? e.feeUsd != null
+                          ? "Batch fee"
+                          : "Batch funding"
+                        : e.side
+                          ? `Basket ${e.side} fee`
+                          : e.source === "wrapper"
+                            ? "Wrapper fee"
+                            : "LP fee"}
                 </div>
               </div>
             </div>
             <div className="text-right">
               <div className="text-xs font-medium" style={{ color }}>
-                {e.kind === "burn" ? "BUY & BURN" : e.kind === "launch" ? "LAUNCH" : e.side ? "TRADE" : "LP REVENUE"}
+                {e.kind === "burn"
+                  ? "BUY & BURN"
+                  : e.kind === "launch"
+                    ? "LAUNCH"
+                    : e.kind === "batch"
+                      ? "PORTFOLIO"
+                      : e.source === "wrapper"
+                        ? "WRAPPED SWAP"
+                        : e.side
+                          ? "TRADE"
+                          : "LP REVENUE"}
               </div>
               <div className="text-[10px] text-slate-500">
                 {e.note ? `${e.note.slice(0, 34)}${e.note.length > 34 ? "…" : ""} · ` : ""}
-                {ago(e.ts)}
+                <TimeAgo ts={e.ts} />
               </div>
             </div>
-          </div>
-        ))}
+          </Row>
+          );
+        })}
       </div>
     </div>
   );

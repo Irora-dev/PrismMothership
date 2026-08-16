@@ -74,4 +74,7 @@ export const marketLinks = (): { label: string; href: string }[] => {
 // changing one did not change the other. Anything linking to an account imports
 // from here.
 export const PRISM_X_URL = "https://x.com/PrismMothership";
+// The community group. Was hardcoded on /links and in the bot's links card
+// before the top bar became its third home — one constant, or they drift.
+export const PRISM_TG_URL = "https://t.me/PrismLP";
 export const SPECTRUM_X_URL = "https://x.com/spectrumindexes";

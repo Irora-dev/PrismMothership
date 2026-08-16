@@ -159,7 +159,7 @@ export function BasketActivity({
             />
             <TimeChart
               title="Fees generated"
-              caption={`${caption} · this basket's own rate · 10% buys & burns PRISM`}
+              caption={`${caption} · this basket's own rate · 25% buys & burns PRISM`}
               color="#c2410c"
               range={range}
               bucketMs={data.bucketMs}

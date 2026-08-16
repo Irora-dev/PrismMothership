@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PixelRainbow } from "@/components/effects/pixel-rainbow";
 import { StartRadioButton } from "@/components/radio/start-radio";
+import { SiteTicker } from "@/components/pulse/site-ticker";
 import { MothershipIntro } from "./intro";
 import { C } from "./style";
 import { WalletProvider, useWallet } from "@/lib/wallet/context";
-import { PRISM_X_URL, dexscreenerUrl } from "@/lib/chain/token-links";
+import { PRISM_TG_URL, PRISM_X_URL, dexscreenerUrl } from "@/lib/chain/token-links";
 
 const DEXSCREENER = dexscreenerUrl(); // null until a PRISM token is wired
 
@@ -44,6 +45,8 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
       { label: "Home", href: "/", icon: "M3 12l9-8 9 8M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10" },
       { label: "How it works", href: "/how-it-works", icon: "M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
       { label: "Command", href: "/command", icon: "M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" },
+      // right below Command (the designer, 2026-08-15) — the two live decks read as a pair
+      { label: "Money Map", href: "/flow", icon: "M4 7h6c4 0 4 5 8 5h2m-2 0h2M4 12h4c4 0 6 5 10 5h2M4 17h3" },
       { label: "Trade", href: "/trade", icon: "M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" },
       { label: "Claim", href: "/claim", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
     ],
@@ -59,7 +62,7 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
     title: "Ecosystem activity",
     items: [
       { label: "Spectrum Ecosystem", href: "/spectrum", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
-      { label: "Burn pipeline", href: "/burn", icon: "M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" },
+      { label: "Burn crank", href: "/burn", icon: "M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" },
       // Lightrunner's own on-chain analytics page doesn't exist yet — the game
       // itself is live at playlightrunner.com (the App Store card links there).
       // disabled: true so the rail renders a label, never a Link to nowhere.
@@ -94,12 +97,24 @@ if (process.env.NODE_ENV === "production") for (const g of NAV_GROUPS) g.items =
 const navByHref = new Map(NAV_GROUPS.flatMap((g) => g.items).map((i) => [i.href, i]));
 const pick = (href: string): NavItem => navByHref.get(href)!;
 const BOTTOM_PRIMARY: NavItem[] = ["/", "/command", "/trade", "/claim", "/radio"].map(pick);
-const BOTTOM_MORE: NavItem[] = ["/how-it-works", "/studio", "/links", "/spectrum", "/burn", "/dev", "/contracts"].map(pick);
+const BOTTOM_MORE: NavItem[] = ["/how-it-works", "/studio", "/links", "/spectrum", "/flow", "/burn", "/dev", "/contracts"].map(pick);
 
 function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = BOTTOM_MORE.some((n) => n.href === pathname);
+
+  // Escape closes the sheet — it shows below lg, which includes NARROW DESKTOP
+  // windows where a keyboard is real (the fee pipeline's overlay already
+  // follows this rule; this sheet had backdrop-tap and route-change only)
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
 
   return (
     <>
@@ -218,12 +233,57 @@ function ConnectControl() {
   );
 }
 
+/** Off-screen until focused, then a real button in the corner.
+ *
+ *  Driven by state and inline styles rather than Tailwind's sr-only/focus
+ *  variants, which rendered but never revealed on focus here — and a skip link
+ *  that stays hidden when focused is worse than none, because the keyboard
+ *  visitor now has an invisible stop in their tab order that appears to do
+ *  nothing. Inline is also this codebase's own law for exactly this reason. */
+function SkipLink() {
+  const [focused, setFocused] = useState(false);
+  const hidden: React.CSSProperties = {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    padding: 0,
+    overflow: "hidden",
+    clip: "rect(0,0,0,0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  };
+  const shown: React.CSSProperties = {
+    position: "fixed",
+    left: 16,
+    top: 16,
+    zIndex: 200,
+    padding: "8px 16px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#fff",
+    background: `linear-gradient(90deg, ${C.cyan}, ${C.purple})`,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+  };
+  return (
+    <a href="#main-content" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} style={focused ? shown : hidden}>
+      Skip to content
+    </a>
+  );
+}
+
 function ShellFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [railOpen, setRailOpen] = useState(false);
 
   return (
     <div className="min-h-screen" style={{ background: "#030409" }}>
+      {/* FIRST focusable thing in the document, which is the entire point: every
+          page opens with a rail, a top bar and a nav group, so a keyboard or
+          screen-reader visitor tabbed through all of it on every navigation
+          before reaching what they came for. Placed anywhere later it is just an
+          invisible stop in the tab order that appears to do nothing. */}
+      <SkipLink />
       <MothershipIntro />
       {/* ── brand bar: the wordmark is GONE (the designer, 2026-08-07, ex-branding-
           advisor eye — supersedes the 08-03 "title stays on top" ruling). The
@@ -232,7 +292,7 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
           survives for screen readers in the link's aria-label. ── */}
       <nav className="sticky top-0 z-50 px-4 py-2.5 sm:px-6" style={glass}>
         <div className="mx-auto flex max-w-[1536px] items-center justify-between gap-4">
-          <Link href="/" className="flex min-w-0 items-center gap-3 sm:gap-4" aria-label="The Prism Mothership — home">
+          <Link href="/" className="flex min-w-0 items-center gap-3 sm:gap-4" aria-label="The Prism Mothership, home">
             {/* the mark rides bare — no box, a little bigger, breathing
                 forward-and-back forever (the designer, 2026-08-03) */}
             <PixelRainbow className="h-7 w-auto shrink-0 sm:h-8" loop />
@@ -265,6 +325,22 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
                 <img src="/mothership/dexscreener.png" alt="DexScreener" className="h-5 w-5" />
               </a>
             )}
+            {/* the community group, same chip as DexScreener — the designer (2026-08-14):
+                he only found the Telegram by accident, because its one link on
+                the site was buried on /links */}
+            <a
+              href={PRISM_TG_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="The Prism community on Telegram"
+              aria-label="The Prism community on Telegram"
+              className="hidden h-[42px] w-[42px] items-center justify-center rounded-lg border border-white/10 text-slate-300 transition-colors hover:border-white/25 hover:text-white sm:flex"
+              style={{ background: "rgba(255,255,255,0.04)" }}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-5 w-5">
+                <path d="M21.94 4.6 18.9 19.04c-.23 1.02-.84 1.27-1.7.79l-4.7-3.47-2.27 2.18c-.25.25-.46.46-.94.46l.33-4.78 8.7-7.86c.38-.34-.08-.53-.59-.19L6.78 13.2l-4.64-1.45c-1.01-.32-1.03-1.01.21-1.5l18.14-6.99c.84-.31 1.57.2 1.3 1.34z" />
+              </svg>
+            </a>
             <a
               href={PRISM_X_URL}
               target="_blank"
@@ -364,7 +440,13 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
       {/* content shifts right of the rail on desktop; relative so full-bleed
           page backdrops (the home hero) can span the whole content region.
           Below lg the bottom menu owns the last 68px + safe area. */}
-      <div className="relative pb-[calc(68px+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-[72px]">{children}</div>
+      <div id="main-content" className="relative pb-[calc(68px+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-[72px]">
+        {/* the live wire, site-wide: real on-chain events scrolling under the
+            bar on every page (the designer greenlit 2026-08-15). Inside main-content
+            so it shares the rail offset; renders nothing until the feed answers. */}
+        <SiteTicker />
+        {children}
+      </div>
 
       {/* the mobile bottom menu */}
       <BottomNav />

@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.03.40",
-  "note": "The top bar sheds its wordmark: the mark and the blinking SYSTEM ONLINE carry the identity, and the bar sits lower on every page. Group basket creation now works on Robinhood, where the live baskets are, and an ambiguous ticker says which other chains it trades on. The create handoff names chains by their canonical key. Sub-cent figures show real digits instead of $0.00.",
+  "version": "2026.08.16.41",
+  "note": "The money map arrives at /flow: the ecosystem's fees enter a glass prism and fan out to their destinations, every figure measured on-chain and every pulse a real transaction you can open. The burn page becomes the burn crank: four honest stages, three chain roads, every step crankable by anyone \u2014 including a one-click L1 finalize for bridge crossings that cleared their dispute window. The Spectrum Portfolio system is live on all three chains: batched buys and wrapped swaps tracked end to end, with the whole wrapper fee now buying and burning PRISM, measured per event rather than assumed. Also: a site-wide activity ticker, per-page share cards, honest stale-read states everywhere money shows, and a bought-and-burnt figure that had silently read zero since it was written now tells the truth.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

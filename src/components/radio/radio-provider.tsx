@@ -37,6 +37,8 @@ interface RadioCtx {
   getLevels: (bands: number) => Float32Array | null;
   /** True once the Web Audio analyser graph is connected to the <audio> element. */
   audioReady: boolean;
+  /** Flash a short line in the tab title for ~7s (the radio burn moment). */
+  flashTab: (text: string) => void;
 }
 
 const Ctx = createContext<RadioCtx | null>(null);
@@ -290,6 +292,88 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     ? currentTrack?.artist ?? (tracks.length ? `track ${trackIndex + 1} of ${tracks.length}` : "drop tracks in /public/radio")
     : station.genre;
 
+  // ── MediaSession: hardware media keys + the lock-screen / control-center
+  // card. The radio survives navigation but was invisible to the OS — no
+  // play/pause from keyboards or earbuds, and phones showed a nameless tab
+  // while the music played. Handlers register ONCE and dispatch through a ref,
+  // so the OS never holds a stale closure.
+  const ctrlRef = useRef({ play: () => {}, pause: () => {}, next: () => {}, prev: () => {} });
+  ctrlRef.current = { play, pause, next, prev };
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    ms.setActionHandler("play", () => ctrlRef.current.play());
+    ms.setActionHandler("pause", () => ctrlRef.current.pause());
+    // next/prev only move on playlist stations; advance() already refuses on streams
+    ms.setActionHandler("nexttrack", () => ctrlRef.current.next());
+    ms.setActionHandler("previoustrack", () => ctrlRef.current.prev());
+    return () => {
+      ms.setActionHandler("play", null);
+      ms.setActionHandler("pause", null);
+      ms.setActionHandler("nexttrack", null);
+      ms.setActionHandler("previoustrack", null);
+    };
+  }, []);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: subtitle || "Prismbeat Radio",
+      album: "Prismbeat Radio",
+      // the track's own embedded cover when it has one; the site mark otherwise
+      artwork: currentTrack?.art
+        ? [{ src: currentTrack.art, sizes: "512x512" }]
+        : [
+            { src: "/icon.png", sizes: "256x256", type: "image/png" },
+            { src: "/apple-icon.png", sizes: "180x180", type: "image/png" },
+          ],
+    });
+  }, [title, subtitle, currentTrack?.art]);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+  }, [playing]);
+
+  // ── Now Playing in the tab title while music plays: "♪ Track · Page". The
+  // base title is REMEMBERED in a ref, never parsed back out of the string
+  // (track names can contain any separator). A MutationObserver catches Next
+  // setting a fresh title on navigation and re-applies the prefix; our own
+  // writes are recognized by the prefix and skipped.
+  // a short-lived tab flash (a burn landed while listening) — composed INTO
+  // the ♪ title write so the MutationObserver never mistakes it for navigation
+  const [tabFlash, setTabFlash] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashTab = useCallback((text: string) => {
+    setTabFlash(text);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setTabFlash(null), 7000);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || !playing) return;
+    const PREFIX = "♪ ";
+    let base = document.title;
+    const apply = () => {
+      document.title = `${PREFIX}${tabFlash ?? title} · ${base}`;
+    };
+    apply();
+    // observe the HEAD, not the title element: Next's router REPLACES the
+    // <title> node on navigation, so an observer bound to the old node goes
+    // silent the first time the route changes (measured: the prefix survived
+    // play but vanished on the first navigation)
+    const mo = new MutationObserver(() => {
+      const t = document.title;
+      if (t.startsWith(PREFIX)) return; // our own write
+      base = t; // navigation gave the tab a new page title
+      apply();
+    });
+    mo.observe(document.head, { childList: true, characterData: true, subtree: true });
+    return () => {
+      mo.disconnect();
+      if (document.title.startsWith(PREFIX)) document.title = base;
+    };
+  }, [playing, title, tabFlash]);
+
   return (
     <Ctx.Provider
       value={{
@@ -314,6 +398,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
         playTrackAt,
         getLevels,
         audioReady,
+        flashTab,
       }}
     >
       {children}

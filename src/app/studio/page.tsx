@@ -26,6 +26,9 @@ import {
   type SocialLayout,
 } from "@/components/studio/social-card";
 import { SpectrumStatsCard, STATS_W, STATS_H } from "@/components/studio/spectrum-stats-card";
+import { BasketCard, BASKET_CARD_W, BASKET_CARD_H, type BasketCardData } from "@/components/studio/basket-card";
+import { basketShareText, basketShareUrl, bundleShareText } from "@/lib/spectrum/basket-share";
+import { decodeBundleLink, extractAddresses, legPercents, looksLikeBundle, CHAIN_OF_ID } from "@/lib/spectrum/bundle-link";
 import { RANGES, isRangeKey, type RangeKey } from "@/lib/feed/types";
 import type { SpectrumChartsPayload } from "@/lib/spectrum/spectrum-charts";
 
@@ -53,7 +56,7 @@ const SOCIAL_DEFAULTS: Record<SocialVariant, { big: string; title: string; sub: 
   buy: {
     big: "$5,200",
     title: "Whale alert! Big buy just landed 🐋",
-    sub: "Serious size just hit this basket, and 10% of that fee instantly buys back & burns PRISM.",
+    sub: "Serious size just hit this basket, and 25% of that fee instantly buys back & burns PRISM.",
   },
 };
 
@@ -116,7 +119,193 @@ const DEFAULT_HOLDINGS: { weight: number; ticker: string; name: string; address:
 const THEME_LIST = Object.keys(THEMES) as ThemeId[];
 
 export default function StudioPage() {
-  const [mode, setMode] = useState<"marketing" | "social" | "stats">("marketing");
+  // Opens on the basket card: it is the thing the Studio is used for most
+  // (the designer, 2026-08-13).
+  const [mode, setMode] = useState<"marketing" | "social" | "stats" | "basket">("basket");
+
+  // ── Basket mode (the designer 2026-08-13): one address in, a shareable card and the
+  // post to carry it out. It reads /api/spectrum/index/[address] rather than the
+  // indexes LIST that the older marketing loader uses, for two reasons: the list
+  // caps `top` at six holdings, and it filters out anything with aumUsd of zero,
+  // so a freshly launched basket is invisible to it. The per-address route
+  // carries every holding with its price.
+  const [bAddr, setBAddr] = useState("");
+  const [bData, setBData] = useState<BasketCardData | null>(null);
+  const [bState, setBState] = useState<"idle" | "loading" | "done" | "missing" | "error">("idle");
+  const [bShare, setBShare] = useState("");
+  const [bCopied, setBCopied] = useState(false);
+  // Every live basket, one click away. Pasting a 42-character address to make a
+  // card you post three times a week is the wrong amount of work, and the list
+  // is already sorted by AUM by the route.
+  const [bList, setBList] = useState<{ address: string; chain: string; symbol: string; name: string }[]>([]);
+  useEffect(() => {
+    if (mode !== "basket" || bList.length) return;
+    let alive = true;
+    fetch("/api/spectrum/indexes", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("indexes unavailable"))))
+      .then((d: { indexes?: { address: string; chain: string; symbol: string; name: string }[] }) => {
+        if (alive) setBList(d.indexes ?? []);
+      })
+      .catch(() => {
+        /* the picker is a shortcut, not the only way in — the address field still works */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mode, bList.length]);
+
+  // Read one basket into the card's shape. Shared by the single-basket path and
+  // by each leg of a bundle.
+  async function readBasket(addr: string) {
+    const r = await fetch(`/api/spectrum/index/${addr}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d?.symbol || !Array.isArray(d.holdings)) return null;
+    return d as {
+      address: string; chain: string; name: string; symbol: string; totalCount?: number;
+      holdings: Record<string, unknown>[];
+    };
+  }
+
+  // A BUNDLE is a cross-chain thesis: several baskets, one card. the designer's own
+  // framing is that it should not read as several baskets at all, so the card
+  // flattens every leg's assets into one grid, weighting each by its leg's
+  // share, and the baskets underneath never appear on the face. Assets are NOT
+  // merged across chains even when the ticker matches, because a ticker is not
+  // an identity here.
+  async function loadBundle(link: string) {
+    const parsed = decodeBundleLink(link);
+    // Either form is acceptable input: a bundle LINK carrying weighted legs, or
+    // simply the per-chain basket addresses of a deployed cross-chain bundle,
+    // which is the kind that has no link at all. Bare addresses weight equally,
+    // since nothing in the paste says otherwise.
+    const legs = parsed.legs.length
+      ? parsed.legs
+      : extractAddresses(link).map((address) => ({ chainId: 0, address, weight: 1 }));
+    if (!legs.length) {
+      setBState("error");
+      return;
+    }
+    setBState("loading");
+    try {
+      const pcts = legPercents(legs);
+      const read = await Promise.all(
+        legs.map(async (leg, i) => {
+          const d = await readBasket(leg.address).catch(() => null);
+          // The reader reports the chain it found the basket on, so a bare
+          // address needs no chain id from the caller.
+          const chain = d?.chain ?? CHAIN_OF_ID[leg.chainId] ?? "ethereum";
+          return d ? { d, chain, share: pcts[i] } : null;
+        }),
+      );
+      const live = read.filter(Boolean) as { d: NonNullable<Awaited<ReturnType<typeof readBasket>>>; chain: string; share: number }[];
+      if (!live.length) {
+        setBState("missing");
+        return;
+      }
+      const holdings = live.flatMap(({ d, chain, share }) =>
+        d.holdings.map((h) => {
+          const within = Number(h.liveWeightPct ?? 0) || Number(h.targetWeightPct ?? 0);
+          const combined = (within * share) / 100;
+          return {
+            symbol: String(h.symbol ?? ""),
+            asset: String(h.asset ?? ""),
+            priceUsd: Number(h.priceUsd ?? 0),
+            liveWeightPct: combined,
+            targetWeightPct: combined,
+            priced: Boolean(h.priced),
+            chain,
+          };
+        }),
+      );
+      const chains = [...new Set(live.map((l) => l.chain))];
+      // A deployed cross-chain bundle IS its shared ticker: every leg carries
+      // the same symbol by construction, so when they agree that is the name,
+      // and the link's own name only has to stand in when they do not.
+      const symbols = [...new Set(live.map((l) => l.d.symbol).filter(Boolean))];
+      // A real deployed bundle shares one ticker across its legs, so that is the
+      // title. An ad-hoc grouping of different baskets has no shared name, and
+      // naming the legs is more use than the word BUNDLE.
+      const shared = symbols.length === 1 ? symbols[0] : null;
+      const title = (parsed.name || shared || symbols.slice(0, 3).join(" + ") || "BUNDLE").toUpperCase();
+      const next: BasketCardData = {
+        address: legs[0].address,
+        chain: chains[0],
+        name: parsed.by
+          ? `by ${parsed.by.slice(0, 6)}…${parsed.by.slice(-4)}`
+          : shared
+            ? `One thesis, ${chains.length} chain${chains.length === 1 ? "" : "s"}`
+            : "A cross-chain thesis",
+        symbol: title,
+        totalCount: holdings.length,
+        holdings,
+        bundle: { chains, basketCount: live.length },
+        // Only a real pasted bundle URL earns the QR. Assembled from addresses,
+        // the thesis has no page yet, and pointing the code at one leg would
+        // send people somewhere they cannot tell is wrong until they arrive.
+        qrUrl: /^https?:\/\//i.test(link.trim()) ? link.trim() : undefined,
+      };
+      setBData(next);
+      setBShare(bundleShareText(parsed.name || shared, chains, holdings.map((h) => h.symbol), link));
+      setBState("done");
+    } catch {
+      setBState("error");
+    }
+  }
+
+  async function loadBasketCard(raw?: string) {
+    const input = (raw ?? bAddr).trim();
+    if (looksLikeBundle(input)) return loadBundle(input);
+    const addr = input;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+      setBState("error");
+      return;
+    }
+    setBState("loading");
+    try {
+      const r = await fetch(`/api/spectrum/index/${addr}`, { cache: "no-store" });
+      if (r.status === 404) {
+        setBState("missing");
+        return;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      if (!d?.symbol || !Array.isArray(d.holdings) || d.holdings.length === 0) {
+        setBState("missing");
+        return;
+      }
+      const next: BasketCardData = {
+        address: d.address,
+        chain: d.chain,
+        name: d.name,
+        symbol: d.symbol,
+        totalCount: d.totalCount ?? d.holdings.length,
+        holdings: d.holdings.map((h: Record<string, unknown>) => ({
+          symbol: String(h.symbol ?? ""),
+          asset: String(h.asset ?? ""),
+          priceUsd: Number(h.priceUsd ?? 0),
+          liveWeightPct: Number(h.liveWeightPct ?? 0),
+          targetWeightPct: Number(h.targetWeightPct ?? 0),
+          priced: Boolean(h.priced),
+        })),
+      };
+      setBData(next);
+      setBShare(basketShareText(next));
+      setBState("done");
+    } catch {
+      setBState("error");
+    }
+  }
+
+  async function copyShareText() {
+    try {
+      await navigator.clipboard.writeText(bShare);
+      setBCopied(true);
+      setTimeout(() => setBCopied(false), 1600);
+    } catch {
+      setBCopied(false);
+    }
+  }
   const [socialVariant, setSocialVariant] = useState<SocialVariant>("burn");
   // Spectrum stats recap card — live payload + editable copy
   const [statsRange, setStatsRange] = useState<RangeKey>("24h");
@@ -449,7 +638,9 @@ export default function StudioPage() {
           ? `prismbeat-social-${socialVariant}.png`
           : mode === "stats"
             ? `prismbeat-spectrum-${statsRange}.png`
-            : `prismbeat-${template}-${format}.png`;
+            : mode === "basket"
+              ? `spectrum-basket-${(bData?.symbol || "basket").toLowerCase()}.png`
+              : `prismbeat-${template}-${format}.png`;
       a.href = canvas.toDataURL("image/png");
       a.click();
     } catch (e) {
@@ -495,8 +686,8 @@ export default function StudioPage() {
   const { w: mW, h: mH } = FORMATS[format];
   // Social posts + the stats recap are always the 1200×630 OG size; marketing
   // uses the chosen format.
-  const w = mode === "social" ? SOCIAL_W : mode === "stats" ? STATS_W : mW;
-  const h = mode === "social" ? SOCIAL_H : mode === "stats" ? STATS_H : mH;
+  const w = mode === "social" ? SOCIAL_W : mode === "stats" ? STATS_W : mode === "basket" ? BASKET_CARD_W : mW;
+  const h = mode === "social" ? SOCIAL_H : mode === "stats" ? STATS_H : mode === "basket" ? BASKET_CARD_H : mH;
   const scale = Math.min(1, previewW / w); // fill width, never upscale past native
 
   return (
@@ -512,11 +703,14 @@ export default function StudioPage() {
                 ? "Design the auto-share post cards (1200×630) · this is what the bot posts to X & Telegram."
                 : mode === "stats"
                   ? "The live Spectrum recap (1200×630): the launchpad's real on-chain numbers, ready to share."
-                  : "Compose a branded marketing image, then copy it or export a PNG."}
+                  : mode === "basket"
+                    ? "Paste a basket address. Out comes a 1920×1080 card of its assets and the post to put it in."
+                    : "Compose a branded marketing image, then copy it or export a PNG."}
             </p>
             <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.03] p-1">
               {(
                 [
+                  { key: "basket", label: "🧺 Basket card" },
                   { key: "marketing", label: "Marketing" },
                   { key: "social", label: "Social posts" },
                   { key: "stats", label: "📊 Spectrum stats" },
@@ -588,8 +782,74 @@ export default function StudioPage() {
           </div>
         </div>
 
+        {/* Basket mode puts its address bar ABOVE the image and its post box
+            BESIDE it (the designer, 2026-08-13) — you paste, you look, you copy, in
+            reading order. Every other mode keeps the full-width preview with
+            its controls underneath. */}
+        {mode === "basket" && (
+          <div className="glass-card p-4 mb-6 flex flex-wrap items-center gap-3">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-semibold shrink-0">Basket address</div>
+            <input
+              value={bAddr}
+              onChange={(e) => setBAddr(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadBasketCard();
+              }}
+              placeholder="0x…"
+              spellCheck={false}
+              className="min-w-[320px] flex-1 rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-sm text-white font-mono outline-none focus:border-white/30"
+            />
+            <button
+              onClick={() => loadBasketCard()}
+              disabled={bState === "loading"}
+              className="rounded-lg bg-white/10 px-4 py-2 text-[13px] font-semibold text-white hover:bg-white/20 disabled:opacity-50 shrink-0"
+            >
+              {bState === "loading" ? "Reading…" : "Load"}
+            </button>
+            <p className="w-full text-[11px] leading-relaxed text-slate-500">
+              {bState === "missing"
+                ? "No basket answers at that address on any of the three chains."
+                : bState === "error"
+                  ? "That is not a valid contract address, or the read failed. Try again."
+                  : bState === "done" && bData
+                    ? `${bData.symbol} loaded with ${bData.totalCount} asset${bData.totalCount === 1 ? "" : "s"}. Export gives you 1920×1080.`
+                    : "A basket address, or paste a whole bundle link and it becomes one cross-chain card. Prices and weights come off chain live."}
+            </p>
+            {bList.length > 0 && (
+              <div className="w-full">
+                <div className="mb-2 text-[10px] uppercase tracking-[0.2em] text-slate-500 font-semibold">
+                  Or pick one · {bList.length} live
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+                  {bList.map((b) => {
+                    const on = bData?.address?.toLowerCase() === b.address.toLowerCase();
+                    return (
+                      <button
+                        key={`${b.chain}-${b.address}`}
+                        onClick={() => {
+                          setBAddr(b.address);
+                          loadBasketCard(b.address);
+                        }}
+                        title={`${b.name} · ${b.chain}`}
+                        className={`shrink-0 rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
+                          on
+                            ? "border-white/40 bg-white/15 text-white"
+                            : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:text-white"
+                        }`}
+                      >
+                        {b.symbol}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className={mode === "basket" ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""}>
         {/* PREVIEW — full width, on top */}
-        <div ref={previewWrapRef} className="glass-card p-5 md:p-6 flex items-center justify-center overflow-hidden">
+        <div ref={previewWrapRef} className={`glass-card p-5 md:p-6 flex items-center justify-center overflow-hidden ${mode === "basket" ? "lg:flex-1 lg:min-w-0" : ""}`}>
           <div style={{ width: w * scale, height: h * scale }}>
             <div style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}>
               {mode === "social" ? (
@@ -606,6 +866,8 @@ export default function StudioPage() {
                 />
               ) : mode === "stats" ? (
                 <SpectrumStatsCard data={statsData} headline={statsHeadline} tagline={statsTagline} />
+              ) : mode === "basket" ? (
+                <BasketCard data={bData} />
               ) : (
                 <MarketingCard format={format} template={template} headline={headline} sub={sub} stats={stats} holdings={holdings} theme={theme} animate />
               )}
@@ -613,8 +875,45 @@ export default function StudioPage() {
           </div>
         </div>
 
+        {mode === "basket" && (
+          <div className="glass-card p-4 space-y-3 lg:w-[360px] lg:shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-semibold">The post</div>
+              <button
+                onClick={copyShareText}
+                disabled={!bShare}
+                className="text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 disabled:opacity-40"
+              >
+                {bCopied ? "Copied ✓" : "Copy text"}
+              </button>
+            </div>
+            <textarea
+              value={bShare}
+              onChange={(e) => setBShare(e.target.value)}
+              rows={10}
+              placeholder="Load a basket and the post writes itself. Edit it however you like before posting."
+              className="w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-[13px] text-white outline-none focus:border-white/30 resize-none"
+            />
+            {bState === "done" && bData && (
+              <a
+                href={basketShareUrl(bData.symbol, bData.address, bData.chain)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate text-[11px] font-mono text-cyan-300 hover:text-cyan-200"
+              >
+                {basketShareUrl(bData.symbol, bData.address, bData.chain)}
+              </a>
+            )}
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Says what the basket holds, never how it has performed. No price, no return, no burn percentage, so
+              nothing here can age into a claim we have to walk back.
+            </p>
+          </div>
+        )}
+        </div>
+
         {/* CONTROLS — below the image, spanning the page width */}
-        <div className="grid gap-5 mt-6 md:grid-cols-2 lg:grid-cols-3 items-start">
+        <div className={`grid gap-5 mt-6 md:grid-cols-2 lg:grid-cols-3 items-start ${mode === "basket" ? "hidden" : ""}`}>
           {mode === "stats" ? (
             <>
               {/* Window + refresh */}
@@ -957,6 +1256,8 @@ export default function StudioPage() {
             <SocialCard ref={cardRef} variant={socialVariant} bigText={socialBig} title={socialTitle} sub={socialSub} holdings={bentoItems} layout={socialLayouts[socialVariant]} />
           ) : mode === "stats" ? (
             <SpectrumStatsCard ref={cardRef} data={statsData} headline={statsHeadline} tagline={statsTagline} />
+          ) : mode === "basket" ? (
+            <BasketCard ref={cardRef} data={bData} />
           ) : (
             <MarketingCard ref={cardRef} format={format} template={template} headline={headline} sub={sub} stats={stats} holdings={holdings} theme={theme} />
           )}

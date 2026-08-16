@@ -7,13 +7,16 @@ export type EventKind =
   | "launch" // a new Spectrum index token went live
   | "harvest" // dstable / index yield harvested (feeds a burn)
   | "retire" // a Prism NFT crossed an integer down and was retired
-  | "nft"; // a new Prism NFT was minted (a holder crossed up into a whole PRISM)
+  | "nft" // a new Prism NFT was minted (a holder crossed up into a whole PRISM)
+  | "batch"; // a batched portfolio execution through the batcher (one signature, many legs)
 
 export type EventSource =
   | "dstable" // the stablecoin's 20%-of-yield buy-and-burn
-  | "spectrum-index" // an index's 10%-of-fees buy-and-burn
+  | "spectrum-index" // an index's 25%-of-fees buy-and-burn
   | "spectrum-auction" // 90% of a Dutch-auction fee buy-and-burn
   | "prism-pool" // the PRISM/ETH pool itself
+  | "portfolio" // the Spectrum Portfolio batcher (watch list until the ceremony)
+  | "wrapper" // the direct-swap fee wrapper (fee in the sell asset, fee/8 integrator + remainder burn)
   | "ecosystem"; // attributed generically when the exact source is unknown
 
 export type Chain = "ethereum" | "base" | "robinhood";
@@ -32,6 +35,10 @@ export interface ActivityEvent {
   tradeUsd?: number; // for index fee events: size of the trade that generated the fee (USD)
   side?: "buy" | "sell"; // for index trade events: the direction of the underlying trade
   usd?: number; // optional notional in USD
+  feeUsd?: number; // for batch events: the batcher's charged fee (USD)
+  legs?: number; // for batch events: assets filled in the batch
+  burnUsd?: number; // for batch events: the fee's burn share actually DELIVERED (BurnShareDelivered, measured)
+  burnEth?: number; // for wrapper events: the fee's burn cut, MEASURED off FeeCharged (the whole fee on gen-3, 7/8 on the old build)
   actor?: string; // address that earned fees / triggered a swap
   label?: string; // e.g. index name
   symbol?: string; // index ticker (launches)
@@ -125,10 +132,16 @@ export interface ChartsPayload {
   buyVolumeUsd: number[]; // buy-side volume per bucket (USD) — net flow = buy − sell
   sellVolumeUsd: number[]; // sell-side volume per bucket (USD)
   feesUsd: number[]; // PRISM pool LP fees per bucket (USD, both legs)
+  poolVolumeUsd?: number[]; // PRISM pool swap notional per bucket (USD, ETH side, measured off Swap events) — absent in demo mode
+  wrapperVolumeUsd?: number[]; // wrapper swap notional per bucket (native sells, USD at read)
+  batchFeesUsd?: number[]; // the batcher's charged fees per bucket (executed5, 6dp USD)
+  batchBurnUsd?: number[]; // the batch fees' delivered burn share per bucket (BurnShareDelivered, measured)
+  wrapperFeesUsd?: number[]; // wrapper fees per bucket (integratorCut + burnCut, measured off FeeCharged)
+  wrapperBurnUsd?: number[]; // the wrapper fees' burn cut per bucket (measured, fee − fee/8)
   burnedPrism: number[]; // PRISM sent to dEaD per bucket
   traders: number[]; // unique basket traders per bucket
   tradersTotal: number; // unique traders across the WHOLE window (per-bucket sums overcount repeat wallets)
-  basketBurnUsd: number[]; // PRISM's 10%-of-fee cut accruing from basket trades (USD)
+  basketBurnUsd: number[]; // PRISM's 25%-of-fee cut accruing from basket trades (USD)
   burnedStartTotal: number; // cumulative PRISM burned BEFORE the window (for the cumulative chart)
   cap: number; // PRISM hard cap
   supply: number; // circulating PRISM (for revenue-per-PRISM)

@@ -20,17 +20,27 @@ import {
   DEAD,
   INDEX_POOL_FEE_RATE,
   L1_PRISM_BURNER,
+  NO_POOL_ID,
+  POOL_MANAGER,
   PRISM,
   PRISM_CAP,
   PRISM_POOL_FROM_BLOCK,
+  PRISM_POOL_ID,
   SPECTRUM_BASE,
   SPECTRUM_ETH,
   SPECTRUM_V2,
   SPECTRUM_LEGACY_FACTORIES,
+  SPECTRUM_V3_FACTORIES,
   SPECTRUM_V2_FROM_BLOCK,
   TOPIC,
   TOPIC_V2,
+  TOPIC_BATCH,
+  TOPIC_WRAPPER,
+  WRAPPER_WATCH,
+  TOPIC_COLLECTOR,
   TOPIC_DEAD,
+  PORTFOLIO_BATCHER_WATCH,
+  PORTFOLIO_COLLECTOR_WATCH,
   USDC_DECIMALS,
 } from "./constants";
 
@@ -85,8 +95,18 @@ interface HourAgg {
   buyUsd: number; // buy-side USD — net flow = buyUsd − sellUsd
   sellUsd: number;
   feesEth: number; // PRISM-pool LP fees (FeesPoked), ETH leg — valued live on read
+  poolVolEth: number; // PRISM-pool swap notional (ETH side, |amount0| per PoolManager Swap) — MEASURED, not fee-derived
+  batchVolUsd: number; // portfolio batch funding (the batcher watch), 6dp settlement coin read as USD
+  batchFeeUsd: number; // the batcher's charged fee (executed5 shape; the 7-shape's fee is native and skipped)
+  batchBurnUsd: number; // the batch fees' burn share actually DELIVERED (BurnShareDelivered, measured)
+  // The direct-swap fee wrapper (WRAPPER_WATCH): native-sell swaps only — the
+  // fee is charged in the SELL asset, so only ETH-denominated cuts can join
+  // these ETH series honestly. Cuts are MEASURED off FeeCharged, never derived.
+  wrapVolEth: number; // wrapper swap notional (spent, native sells)
+  wrapFeeEth: number; // integratorCut + burnCut
+  wrapBurnEth: number; // burnCut alone (fee − fee/8, the deployed floor math)
   burnedPrism: number;
-  basketBurnUsd: number; // trade-volume-derived 10% burn share (the /charts approximation)
+  basketBurnUsd: number; // trade-volume-derived 25% burn share (the /charts approximation)
   // Basket FeesAccrued (the real on-chain fee split, USDC) — powers /spectrum's
   // "Fees earned" card. Per-chain totals + the split components.
   bFeeEthUsd: number;
@@ -109,6 +129,13 @@ const emptyHour = (): HourAgg => ({
   buyUsd: 0,
   sellUsd: 0,
   feesEth: 0,
+  poolVolEth: 0,
+  batchVolUsd: 0,
+  batchFeeUsd: 0,
+  batchBurnUsd: 0,
+  wrapVolEth: 0,
+  wrapFeeEth: 0,
+  wrapBurnEth: 0,
   burnedPrism: 0,
   basketBurnUsd: 0,
   bFeeEthUsd: 0,
@@ -252,7 +279,22 @@ interface Snapshot {
   // v11: HourAgg.split gained `league` — the 5-field FeesAccrued's real 5th field,
   // previously folded into `interfaces`. Stored aggregates carry the mislabel, so
   // history must rebuild.
-  v: 11;
+  // v12: HourAgg gained `poolVolEth` (measured PRISM-pool swap notional — the
+  // money map's "volume next to fees", the designer 2026-08-15). Old snapshots have no
+  // pool volume for any hour, so history must rebuild (the pool is weeks old;
+  // the rebuild recovers its full life).
+  // v13: HourAgg gained `batchVolUsd` (portfolio batch funding off the batcher
+  // watch, same 2026-08-15 ruling) — rebuild so batches already on chain count.
+  // v14 lives in git history (bridgedEth, the collector watch).
+  // v15: basketBurnUsd re-derives at the ruled 25% burn share (was 10%, the designer
+  // 2026-08-16) — mixed-rate history is incoherent, so rebuild it all one way.
+  // v16: HourAgg gained the wrapper series (wrapVolEth/wrapFeeEth/wrapBurnEth —
+  // the designer 2026-08-16: "track wrapper swaps in portfolio / moneymap"); rebuild
+  // so the first mainnet wrapper swap counts.
+  // v17: batchFeeUsd + batchBurnUsd join (the designer's same-day ruling: wrapped
+  // swaps and batches are TWO CAPTURE ROUTES OF ONE SYSTEM — the portfolio
+  // card carries both), so batch fees rebuild from the floors.
+  v: 17;
   ethLast: number;
   baseLast: number;
   hoodLast: number;
@@ -268,7 +310,7 @@ async function hydrateFromBlob(): Promise<void> {
     const blobs = await blobStore();
     if (!blobs) return;
     const snap = (await blobs.get("store", { type: "json" })) as Snapshot | null;
-    if (!snap || snap.v !== 11 || !Array.isArray(snap.hours)) return;
+    if (!snap || snap.v !== 17 || !Array.isArray(snap.hours)) return;
     store = {
       hours: new Map(snap.hours),
       ethLast: snap.ethLast,
@@ -291,7 +333,7 @@ async function persistToBlob(s: StoreState): Promise<void> {
     const blobs = await blobStore();
     if (!blobs) return;
     const snap: Snapshot = {
-      v: 11,
+      v: 17,
       ethLast: s.ethLast,
       baseLast: s.baseLast,
     hoodLast: s.hoodLast,
@@ -394,16 +436,23 @@ async function ingestEth(s: StoreState, eth: JsonRpcProvider, from: number, to: 
   if (from > to) return;
   const tsOf = await tsEstimator(eth, from, to, latestNum, latestTs, ETH_SPB, 50_000);
   const { all: ethTokens } = await ethIndexTokens();
-  const [feeLogs, burnLogs, launchLogs, launchV2Logs, tradeLogs, feeAccLogs] = await Promise.all([
+  const [feeLogs, swapLogs, burnLogs, launchLogs, launchV2Logs, tradeLogs, feeAccLogs, batchLogs, wrapperLogs] = await Promise.all([
     getLogsChunked(eth, { address: PRISM, topics: [TOPIC.feesPoked] }, from, to),
+    // pool swap notionals, MEASURED off the PoolManager's own Swap events —
+    // deriving volume from fees would stack the ÷fee-tier guess on top of the
+    // ×LEG_FACTOR one. Guarded: an unwired token derives the zero poolId.
+    PRISM_POOL_ID !== NO_POOL_ID
+      ? getLogsChunked(eth, { address: POOL_MANAGER, topics: [TOPIC.swap, PRISM_POOL_ID] }, from, to)
+      : Promise.resolve([] as Log[]),
     getLogsChunked(eth, { address: PRISM, topics: [TOPIC.transfer, null, TOPIC_DEAD] }, from, to),
     getLogsChunked(eth, { address: SPECTRUM_ETH, topics: [TOPIC.launched] }, from, to),
     SPECTRUM_V2.ethFactory
       ? getLogsChunked(
           eth,
-          // Both the current factory AND the legacy one that still receives real
-          // launches (the kit points there on eth) — see SPECTRUM_LEGACY_FACTORIES.
-          { address: [SPECTRUM_V2.ethFactory, ...SPECTRUM_LEGACY_FACTORIES.ethereum.map((f) => f.address)], topics: [TOPIC_V2.launched] },
+          // Every generation that receives real launches: the current factory,
+          // the legacy one, AND the gen-3 production factory (fresh registry
+          // from the 2026-08-16 ceremony — wired before its first launch).
+          { address: [SPECTRUM_V2.ethFactory, ...SPECTRUM_LEGACY_FACTORIES.ethereum.map((f) => f.address), ...SPECTRUM_V3_FACTORIES.ethereum.map((f) => f.address)], topics: [TOPIC_V2.launched] },
           from,
           to,
         )
@@ -414,7 +463,23 @@ async function ingestEth(s: StoreState, eth: JsonRpcProvider, from: number, to: 
     ethTokens.length
       ? getLogsChunked(eth, { address: ethTokens, topics: [[TOPIC_V2.feesAccrued, TOPIC_V2.feesAccruedV3]] }, from, to)
       : Promise.resolve([] as Log[]),
+    PORTFOLIO_BATCHER_WATCH.ethereum.length
+      ? getLogsChunked(eth, { address: PORTFOLIO_BATCHER_WATCH.ethereum, topics: [[TOPIC_BATCH.executed5, TOPIC_BATCH.executed7, TOPIC_BATCH.burnShareDelivered]] }, from, to)
+      : Promise.resolve([] as Log[]),
+    getLogsChunked(eth, { address: WRAPPER_WATCH.ethereum.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to),
   ]);
+  ingestBatches(s, batchLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf);
+  for (const l of swapLogs) {
+    try {
+      // same decode as live.ts's feed: amount0 is the ETH side; |amount0| = notional
+      let a0 = abi.decode(["int128", "int128", "uint160", "uint128", "int24", "uint24"], l.data)[0] as bigint;
+      if (a0 < 0n) a0 = -a0;
+      hourAgg(s, tsOf(l.blockNumber)).poolVolEth += num(a0);
+    } catch {
+      /* skip malformed */
+    }
+  }
   for (const l of feeLogs) {
     try {
       hourAgg(s, tsOf(l.blockNumber)).feesEth += num(abi.decode(["uint256", "uint256"], l.data)[0] as bigint);
@@ -451,14 +516,71 @@ async function ingestEth(s: StoreState, eth: JsonRpcProvider, from: number, to: 
   await ingestTrades(s, eth, tradeLogs, tsOf);
 }
 
+// Portfolio batch volume off the batcher watch (the designer's 2026-08-15 ruling):
+// the funding notional per BatchExecuted, 6dp settlement coin read as USD.
+function ingestBatches(s: StoreState, logs: Log[], tsOf: (bn: number) => number) {
+  for (const l of logs) {
+    try {
+      if (l.topics[0] === TOPIC_BATCH.executed5) {
+        const d = abi.decode(["uint256", "uint256", "uint256"], l.data);
+        const h = hourAgg(s, tsOf(l.blockNumber));
+        h.batchVolUsd += num6(d[0] as bigint);
+        h.batchFeeUsd += num6(d[1] as bigint);
+      } else if (l.topics[0] === TOPIC_BATCH.executed7)
+        hourAgg(s, tsOf(l.blockNumber)).batchVolUsd += num6(abi.decode(["address", "uint256", "uint256", "uint256", "uint16", "uint16"], l.data)[1] as bigint);
+      else if (l.topics[0] === TOPIC_BATCH.burnShareDelivered)
+        // the burn share the batcher actually DELIVERED (fundingSpent, 6dp) —
+        // measured; BurnDiverted deliberately does not count
+        hourAgg(s, tsOf(l.blockNumber)).batchBurnUsd += num6(abi.decode(["uint256", "uint256"], l.data)[0] as bigint);
+    } catch {
+      /* skip malformed */
+    }
+  }
+}
+
+// Wrapper swaps off the wrapper watch (the designer 2026-08-16). Two passes because
+// FeeCharged does not name the asset — the paired DirectSwap in the same tx
+// does (topics[2] = sellToken; 0x0 = native).
+function ingestWrapper(s: StoreState, logs: Log[], tsOf: (bn: number) => number) {
+  const nativeTx = new Set<string>();
+  for (const l of logs) {
+    if (l.topics[0] !== TOPIC_WRAPPER.directSwap || l.topics[2] !== `0x${"0".repeat(64)}`) continue;
+    nativeTx.add(l.transactionHash);
+    try {
+      hourAgg(s, tsOf(l.blockNumber)).wrapVolEth += num(abi.decode(["uint256", "uint256", "uint256"], l.data)[0] as bigint);
+    } catch {
+      /* skip malformed */
+    }
+  }
+  for (const l of logs) {
+    if (!nativeTx.has(l.transactionHash)) continue;
+    try {
+      const h = hourAgg(s, tsOf(l.blockNumber));
+      if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
+        // old generation: (integratorCut, burnCut) — the 7:1 split
+        const d = abi.decode(["uint256", "uint256"], l.data);
+        h.wrapFeeEth += num(d[0] as bigint) + num(d[1] as bigint);
+        h.wrapBurnEth += num(d[1] as bigint);
+      } else if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
+        // gen-3: (burnCut) and burnCut == fee — the whole fee burns
+        const cut = num(abi.decode(["uint256"], l.data)[0] as bigint);
+        h.wrapFeeEth += cut;
+        h.wrapBurnEth += cut;
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+}
+
 async function ingestBase(s: StoreState, base: JsonRpcProvider, from: number, to: number, latestNum: number, latestTs: number) {
   if (from > to) return;
   const tsOf = await tsEstimator(base, from, to, latestNum, latestTs, BASE_SPB, 200_000);
   const { all: tokens } = await baseIndexTokens();
-  const [launchLogs, launchV2Logs, tradeLogs, auctionBridgeLogs, auctionBridgeV2Logs, indexBridgeLogs, feeAccLogs] = await Promise.all([
+  const [launchLogs, launchV2Logs, tradeLogs, auctionBridgeLogs, auctionBridgeV2Logs, indexBridgeLogs, feeAccLogs, batchLogs, collectorFlushLogs, wrapperLogs] = await Promise.all([
     getLogsChunked(base, { address: SPECTRUM_BASE, topics: [TOPIC.launched] }, from, to),
     SPECTRUM_V2.baseFactory
-      ? getLogsChunked(base, { address: SPECTRUM_V2.baseFactory, topics: [TOPIC_V2.launched] }, from, to)
+      ? getLogsChunked(base, { address: [SPECTRUM_V2.baseFactory, ...SPECTRUM_V3_FACTORIES.base.map((f) => f.address)], topics: [TOPIC_V2.launched] }, from, to)
       : Promise.resolve([] as Log[]),
     tokens.length
       ? getLogsChunked(base, { address: tokens, topics: [[TOPIC.minted, TOPIC.sellViaSwap, TOPIC_V2.minted, TOPIC_V2.redeemed]] }, from, to, 100_000)
@@ -473,7 +595,28 @@ async function ingestBase(s: StoreState, base: JsonRpcProvider, from: number, to
     tokens.length
       ? getLogsChunked(base, { address: tokens, topics: [[TOPIC_V2.feesAccrued, TOPIC_V2.feesAccruedV3]] }, from, to, 100_000)
       : Promise.resolve([] as Log[]),
+    PORTFOLIO_BATCHER_WATCH.base.length
+      ? getLogsChunked(base, { address: PORTFOLIO_BATCHER_WATCH.base, topics: [[TOPIC_BATCH.executed5, TOPIC_BATCH.executed7, TOPIC_BATCH.burnShareDelivered]] }, from, to, 100_000)
+      : Promise.resolve([] as Log[]),
+    // collector flushes: the burn cut leaving Base on its ~7d bridge
+    getLogsChunked(
+      base,
+      { address: PORTFOLIO_COLLECTOR_WATCH.filter((c) => c.chain === "base").map((c) => c.address), topics: [TOPIC_COLLECTOR.burnBridgedToL1] },
+      from,
+      to,
+      100_000,
+    ),
+    getLogsChunked(base, { address: WRAPPER_WATCH.base.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to, 100_000),
   ]);
+  ingestBatches(s, batchLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf);
+  for (const l of collectorFlushLogs) {
+    try {
+      hourAgg(s, tsOf(l.blockNumber)).bridgedEth += num(abi.decode(["uint256"], l.data)[0] as bigint);
+    } catch {
+      /* skip malformed */
+    }
+  }
 
   for (const l of launchLogs) {
     const h = hourAgg(s, tsOf(l.blockNumber));
@@ -525,9 +668,10 @@ async function ingestHood(s: StoreState, hood: JsonRpcProvider, from: number, to
   if (from > to) return;
   const tsOf = await tsEstimator(hood, from, to, latestNum, latestTs, HOOD_SPB, 400_000);
   const { all: tokens } = await hoodIndexTokens();
-  const [launchLogs, tradeLogs, feeAccLogs] = await Promise.all([
+  const hoodCollectors = PORTFOLIO_COLLECTOR_WATCH.filter((c) => c.chain === "robinhood").map((c) => c.address);
+  const [launchLogs, tradeLogs, feeAccLogs, batchLogs, collectorFlushLogs, wrapperLogs] = await Promise.all([
     SPECTRUM_V2.hoodFactory
-      ? getLogsChunked(hood, { address: SPECTRUM_V2.hoodFactory, topics: [TOPIC_V2.launched] }, from, to, 400_000)
+      ? getLogsChunked(hood, { address: [SPECTRUM_V2.hoodFactory, ...SPECTRUM_V3_FACTORIES.robinhood.map((f) => f.address)], topics: [TOPIC_V2.launched] }, from, to, 400_000)
       : Promise.resolve([] as Log[]),
     tokens.length
       ? getLogsChunked(hood, { address: tokens, topics: [[TOPIC_V2.minted, TOPIC_V2.redeemed]] }, from, to, 400_000)
@@ -535,7 +679,24 @@ async function ingestHood(s: StoreState, hood: JsonRpcProvider, from: number, to
     tokens.length
       ? getLogsChunked(hood, { address: tokens, topics: [[TOPIC_V2.feesAccrued, TOPIC_V2.feesAccruedV3]] }, from, to, 400_000)
       : Promise.resolve([] as Log[]),
+    PORTFOLIO_BATCHER_WATCH.robinhood.length
+      ? getLogsChunked(hood, { address: PORTFOLIO_BATCHER_WATCH.robinhood, topics: [[TOPIC_BATCH.executed5, TOPIC_BATCH.executed7, TOPIC_BATCH.burnShareDelivered]] }, from, to, 400_000)
+      : Promise.resolve([] as Log[]),
+    // collector flushes: the burn cut leaving the L2 on its ~7d bridge
+    hoodCollectors.length
+      ? getLogsChunked(hood, { address: hoodCollectors, topics: [TOPIC_COLLECTOR.burnBridgedToL1] }, from, to, 400_000)
+      : Promise.resolve([] as Log[]),
+    getLogsChunked(hood, { address: WRAPPER_WATCH.robinhood.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to, 400_000),
   ]);
+  ingestBatches(s, batchLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf);
+  for (const l of collectorFlushLogs) {
+    try {
+      hourAgg(s, tsOf(l.blockNumber)).bridgedEth += num(abi.decode(["uint256"], l.data)[0] as bigint);
+    } catch {
+      /* skip malformed */
+    }
+  }
   for (const l of launchLogs) {
     const h = hourAgg(s, tsOf(l.blockNumber));
     h.launches += 1;
@@ -667,6 +828,12 @@ export async function fetchLiveCharts(
   const buyVolumeUsd = zeros();
   const sellVolumeUsd = zeros();
   const feesUsd = zeros();
+  const poolVolumeUsd = zeros();
+  const wrapperVolumeUsd = zeros();
+  const batchFeesUsd = zeros();
+  const batchBurnUsd = zeros();
+  const wrapperFeesUsd = zeros();
+  const wrapperBurnUsd = zeros();
   const burnedPrism = zeros();
   const basketBurnUsd = zeros();
   const bucketTraders = Array.from({ length: cfg.buckets }, () => new Set<string>());
@@ -701,6 +868,12 @@ export async function fetchLiveCharts(
       buyVolumeUsd[i] += h.buyUsd;
       sellVolumeUsd[i] += h.sellUsd;
       feesUsd[i] += h.feesEth * LEG_FACTOR * ethUsd;
+      poolVolumeUsd[i] += (h.poolVolEth ?? 0) * ethUsd;
+      wrapperVolumeUsd[i] += (h.wrapVolEth ?? 0) * ethUsd;
+      batchFeesUsd[i] += h.batchFeeUsd ?? 0;
+      batchBurnUsd[i] += h.batchBurnUsd ?? 0;
+      wrapperFeesUsd[i] += (h.wrapFeeEth ?? 0) * ethUsd;
+      wrapperBurnUsd[i] += (h.wrapBurnEth ?? 0) * ethUsd;
       burnedPrism[i] += h.burnedPrism;
       basketBurnUsd[i] += h.basketBurnUsd;
       for (const t of h.traders) {
@@ -747,6 +920,12 @@ export async function fetchLiveCharts(
     buyVolumeUsd,
     sellVolumeUsd,
     feesUsd,
+    poolVolumeUsd,
+    wrapperVolumeUsd,
+    batchFeesUsd,
+    batchBurnUsd,
+    wrapperFeesUsd,
+    wrapperBurnUsd,
     burnedPrism,
     traders: bucketTraders.map((t) => t.size),
     tradersTotal: windowTraders.size,
@@ -859,15 +1038,21 @@ async function fetchAuctionPipeline(eth: JsonRpcProvider, base: JsonRpcProvider 
     out.escrowedEth = Number(formatUnits(ethEscrow + baseEscrow, 18));
     out.burnerEth = Number(formatUnits(burnerBal, 18));
     const latest = await eth.getBlockNumber();
+    // ⚠ Fixed 2026-08-16: this used to filter Transfer(from = burner → dEaD),
+    // which has NEVER matched — the burner buys through the v4 pool, so its
+    // dEaD transfer is emitted with the POOLMANAGER as sender (the same trap
+    // attributeBurnSource documents). The figure read 0 from the day it was
+    // written. The burner's own Burned(caller, ethIn, prismBurned) event IS
+    // the measurement, so read that.
     const logs = await getLogsChunked(
       eth,
-      { address: PRISM, topics: [TOPIC.transfer, zeroPadValue(L1_PRISM_BURNER, 32), zeroPadValue(DEAD, 32)] },
+      { address: L1_PRISM_BURNER, topics: [id("Burned(address,uint256,uint256)")] },
       PRISM_POOL_FROM_BLOCK,
       latest,
     );
     for (const l of logs) {
       try {
-        out.burnedPrism += num(abi.decode(["uint256"], l.data)[0] as bigint);
+        out.burnedPrism += num(abi.decode(["uint256", "uint256"], l.data)[1] as bigint);
       } catch {
         /* skip malformed */
       }
@@ -954,6 +1139,7 @@ export async function fetchLiveSpectrumCharts(
       payload.sells[i] += h.sells;
       payload.buyVolumeUsd[i] += h.buyUsd;
       payload.sellVolumeUsd[i] += h.sellUsd;
+      payload.batchVolumeUsd[i] += h.batchVolUsd ?? 0;
       payload.feesEthUsd[i] += h.bFeeEthUsd;
       payload.feesBaseUsd[i] += h.bFeeBaseUsd;
       payload.feesHoodUsd[i] += h.bFeeHoodUsd ?? 0;

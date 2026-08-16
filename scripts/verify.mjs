@@ -97,11 +97,30 @@ if (LIVE) {
 // ── 1. the app answers at all ────────────────────────────────────────────────
 async function gateHealth() {
   section("① Surfaces respond");
-  for (const p of ["/", "/command", "/claim", "/spectrum", "/radio", "/trade", "/how-it-works", "/burn", "/dev", "/contracts", "/link"]) {
+  // Pages that carry their own tab title. A missing layout silently falls back
+  // to the site-wide title — every page still 200s, nothing errors, and the
+  // regression is invisible until someone notices every tab reads the same.
+  const TITLED = {
+    "/claim": "Claim ·", "/radio": "Prismbeat Radio ·", "/studio": "Studio ·",
+    "/how-it-works": "How it works ·", "/contracts": "Contracts ·",
+    "/burn": "The burn crank ·", "/flow": "The money map ·", "/trade": "Trade",
+  };
+  for (const p of ["/", "/command", "/claim", "/spectrum", "/flow", "/radio", "/trade", "/how-it-works", "/burn", "/dev", "/contracts", "/link"]) {
     try {
       const r = await get(p, 30_000);
-      if (r.status === 200) ok(`page ${p}`);
-      else fail(`page ${p}`, `HTTP ${r.status}`);
+      if (r.status !== 200) {
+        fail(`page ${p}`, `HTTP ${r.status}`);
+        continue;
+      }
+      const want = TITLED[p];
+      if (want) {
+        const title = ((await r.text()).match(/<title>([^<]*)<\/title>/) || [])[1] ?? "";
+        if (!title.includes(want)) {
+          fail(`page ${p}`, `tab title regressed to "${title}" — its layout metadata is gone`);
+          continue;
+        }
+      }
+      ok(`page ${p}`);
     } catch (e) {
       fail(`page ${p}`, String(e.message || e));
     }
@@ -178,6 +197,28 @@ async function gateCards() {
       ok(`card ${c.kind} (${Math.round(buf.length / 1024)}KB)`);
     } catch (e) {
       fail(`card ${c.kind}`, String(e.message || e));
+    }
+  }
+
+  // The cards carry the brand typeface only because four TTFs are reachable.
+  // Lose them and nothing fails: Satori quietly falls back to its default face
+  // and every card the bot posts goes out looking generic. Nobody would notice
+  // from a status code, so assert the files themselves.
+  for (const f of ["SpaceGrotesk-400.ttf", "SpaceGrotesk-700.ttf", "PlusJakartaSans-400.ttf", "PlusJakartaSans-800.ttf"]) {
+    try {
+      const r = await get(`/fonts/ttf/${f}`, 20_000);
+      if (!r.ok) {
+        fail(`brand font ${f}`, `HTTP ${r.status} — cards fall back to Satori's default face`);
+        continue;
+      }
+      const head = Buffer.from(await r.arrayBuffer()).subarray(0, 4);
+      // TrueType is 0x00010000; OpenType-with-CFF is "OTTO". woff2 ("wOF2") is
+      // the one that silently renders nothing, so name it if it turns up.
+      const magic = head.toString("hex");
+      if (magic === "00010000" || head.toString("latin1") === "OTTO") ok(`brand font ${f}`);
+      else fail(`brand font ${f}`, `not a TTF/OTF (magic ${magic}) — Satori cannot decode it`);
+    } catch (e) {
+      fail(`brand font ${f}`, String(e.message || e));
     }
   }
 }
@@ -797,6 +838,172 @@ async function gateNumbers() {
   }
 }
 
+// ── the two burn streams keep their data contract ────────────────────────────
+// /burn's "Where the burn comes from" reads two routes and derives nothing: the
+// basket stream comes from /api/spectrum/charts, the portfolio stream from the
+// `batcher` field on /api/burn-pipeline. Both fail quietly — drop a field and
+// the card shows dashes forever while every page still returns 200. So assert
+// the SHAPE. Until the 2026-08-16 gen-3 ceremony this asserted the portfolio
+// stream stayed DARK (no placeholder before the batcher was real — R's desk
+// item w-…-136); the ceremony seated the production batchers, so it now
+// asserts the stream is LIVE, measured, and never claims a per-stream PRISM.
+async function gateBurnStreams() {
+  section("⑥ The burn splits into its two streams");
+  try {
+    const r = await get("/api/spectrum/charts?range=1y");
+    const d = await r.json();
+    if (!r.ok) fail("basket stream feed", `HTTP ${r.status}`);
+    else if (!Array.isArray(d.buyVolumeUsd) || !Array.isArray(d.sellVolumeUsd))
+      fail("basket stream feed", "buyVolumeUsd/sellVolumeUsd are no longer arrays, so the traded figure cannot be summed");
+    else if (typeof d.queuedBurnUsd !== "number") fail("basket stream feed", "queuedBurnUsd is missing, so the queued figure goes blank");
+    else if (typeof d.auctionPipeline?.burnedPrism !== "number")
+      fail("basket stream feed", "auctionPipeline.burnedPrism is missing, so the bought-and-burnt figure goes blank");
+    else {
+      const vol = [...d.buyVolumeUsd, ...d.sellVolumeUsd].reduce((a, b) => a + (b || 0), 0);
+      ok(`basket stream carries all three figures (traded $${Math.round(vol).toLocaleString("en-US")}, queued $${d.queuedBurnUsd.toFixed(2)}, burnt ${d.auctionPipeline.burnedPrism} PRISM)`);
+    }
+  } catch (e) {
+    fail("basket stream feed", String(e.message || e));
+  }
+  try {
+    const r = await get("/api/burn-pipeline");
+    const d = await r.json();
+    if (!r.ok) fail("portfolio stream is live", `HTTP ${r.status}`);
+    else if (!("batcher" in d)) fail("portfolio stream is live", "the batcher field is gone, so the portfolio card can never light up");
+    // The gen-3 ceremony seated the production batchers (2026-08-16): dark is
+    // now a REGRESSION, and the shape is the measured one — volume, fees and
+    // delivered ETH off the batchers' own events, deliberately no PRISM claim
+    // (the burner pot is fungible; a per-stream PRISM figure would be invented).
+    else if (d.batcher === null) fail("portfolio stream is live", "batcher is null after the gen-3 ceremony — the portfolio stream regressed to dark");
+    else if (String(d.batcher.address).toLowerCase() !== "0xfb4646c26cfbbe8d4682aeb42e90b1ab8159764f")
+      fail("portfolio stream is live", `batcher address is ${String(d.batcher.address).slice(0, 12)}, not the verified gen-3 production batcher`);
+    else if (typeof d.batcher.volumeUsd !== "number" || typeof d.batcher.feesUsd !== "number" || typeof d.batcher.deliveredEth !== "number" || typeof d.batcher.batches !== "number")
+      fail("portfolio stream is live", "the batcher payload lost volumeUsd/feesUsd/deliveredEth/batches — the card would render undefined");
+    else if ("burnedPrism" in d.batcher)
+      fail("portfolio stream is live", "the batcher payload claims a burnedPrism figure — the pot is fungible, that number cannot be measured per-stream");
+    else
+      ok(`portfolio stream is LIVE off the gen-3 batchers (${d.batcher.batches} batches · $${d.batcher.volumeUsd.toFixed(2)} vol · Ξ${d.batcher.deliveredEth.toFixed(4)} sent to the burn)`);
+    // the crank surfaces read `collectors` from the same payload — every chip
+    // and button keys on pendingEth + flushable, and a dropped field fails
+    // quietly into "no staged burn" while flushable money sits invisible
+    if (r.ok) {
+      if (!Array.isArray(d.collectors))
+        fail("staged-burn collectors", "collectors is not an array, so every crank chip silently disappears");
+      else if (d.collectors.some((c) => typeof c?.pendingEth !== "number" || typeof c?.flushable !== "boolean" || !c?.address || !c?.chain))
+        fail("staged-burn collectors", "a collector row is missing pendingEth/flushable/address/chain — the crank would render undefined");
+      // both generations must be watched per L2 since the gen-3 ceremony: the
+      // production collector AND the gen-1 one the rehearsal decoys still feed
+      else if (["base", "robinhood"].some((ch) => !d.collectors.some((c) => c.chain === ch && c.gen === 3) || !d.collectors.some((c) => c.chain === ch && c.gen === 1)))
+        fail("staged-burn collectors", "a chain lost one of its collector generations — staged money there would go invisible");
+      else
+        ok(
+          d.collectors.length
+            ? `staged-burn collectors carry the crank contract, both generations (${d.collectors.map((c) => `${c.chain}·g${c.gen} Ξ${c.pendingEth.toFixed(4)}${c.flushable ? " flushable" : ""}`).join(" · ")})`
+            : "staged-burn collectors shape holds (none pending right now)",
+        );
+      // ── the crank economics (w-79) — the ONLY economic protection that exists ──
+      // The deployed thresholds sit below their own economic floors and are
+      // immutable, so every CTA gates on `economic` (finalization ≤ policy% of
+      // value at the LIVE L1 base fee). Drop any of these fields and the gate
+      // silently degrades back to flushable() — the exact failure w-79 forbids.
+      if (typeof d.l1BaseFeeGwei !== "number" || d.l1BaseFeeGwei <= 0)
+        fail("crank economics", "l1BaseFeeGwei is missing or zero — every economic gate would price finalization at nothing");
+      else if (typeof d.policyPct !== "number")
+        fail("crank economics", "policyPct is missing — the 2% amortisation policy is no longer stated by the payload");
+      else if (Array.isArray(d.collectors) && d.collectors.some((c) => typeof c?.economic !== "boolean" || typeof c?.thresholdEth !== "number"))
+        fail("crank economics", "a collector row lost its economic/thresholdEth fields — the CTA would regress to the contract floor");
+      else
+        ok(`crank economics priced at L1 ${d.l1BaseFeeGwei.toFixed(3)} gwei, CTAs gate on ≤${d.policyPct}% (${(d.collectors ?? []).map((c) => `${c.chain}${c.economic ? " ✓economic" : " ✗uneconomic"}`).join(" · ") || "no collectors"})`);
+      if (!Array.isArray(d.withdrawals))
+        fail("bridge withdrawals", "withdrawals is not an array — the per-withdrawal bridge stations render nothing");
+      else if (d.withdrawals.some((w) => !w?.txHash || typeof w?.amountEth !== "number" || typeof w?.unlockTs !== "number" || !["window", "executable", "landed"].includes(w?.status)))
+        fail("bridge withdrawals", "a withdrawal row is malformed — a bridge station would render undefined");
+      else
+        ok(
+          d.withdrawals.length
+            ? `bridge withdrawals tracked per-crossing (${d.withdrawals.map((w) => `Ξ${w.amountEth.toFixed(4)} ${w.status}`).join(" · ")})`
+            : "bridge withdrawals shape holds (nothing crossing)",
+        );
+      // ── the finalize crank's data spine ──
+      // Arbitrum-path rows must carry their Outbox position: real executability
+      // keys on `position < confirmedSendCount`, and a row that loses the field
+      // silently regresses READY to a wall-clock guess — the exact dishonesty
+      // the crank was built to end. And "executable" itself must never appear
+      // on a positioned row unless that comparison passed (route invariant).
+      if (Array.isArray(d.withdrawals)) {
+        const hoodRows = d.withdrawals.filter((w) => w?.chain === "robinhood");
+        if (hoodRows.some((w) => typeof w?.position !== "number"))
+          fail("finalize positions", "a robinhood withdrawal lost its Outbox position — READY would regress to the wall clock");
+        else ok(hoodRows.length ? `every robinhood crossing carries its Outbox position (${hoodRows.map((w) => `#${w.position}`).join(" · ")})` : "finalize positions shape holds (no robinhood crossings)");
+      }
+      if (!Array.isArray(d.board)) fail("the crank board", "board is not an array — the leaderboard renders nothing");
+      else if (d.board.some((b) => !b?.address || typeof b?.valueEth !== "number" || typeof b?.cranks !== "number"))
+        fail("the crank board", "a board row is malformed");
+      else if (d.board.length >= 2 && d.board[0].valueEth < d.board[1].valueEth)
+        fail("the crank board", "the board is not ranked by value — count-ranking is the exact dynamic w-79 forbids");
+      else ok(d.board.length ? `the crank board ranks by value (top Ξ${d.board[0].valueEth.toFixed(4)} across ${d.board[0].cranks} cranks)` : "the crank board shape holds (nobody has cranked)");
+      if (typeof d.burner?.burnedPrismTotal !== "number" || typeof d.burner?.economic !== "boolean")
+        fail("burner economics", "the burner lost burnedPrismTotal/economic — the pot station and burned-forever tile go blank");
+      else ok(`the burner carries its history + economics (${d.burner.burnedPrismTotal.toFixed(3)} PRISM burned all-time)`);
+    }
+  } catch (e) {
+    fail("portfolio stream is live", String(e.message || e));
+  }
+  // the batch card's legs come from this route; a regressed validator that
+  // 200s on garbage would let the card render junk for any crafted link
+  try {
+    const bad = await get("/api/spectrum/batch-legs?tx=nonsense");
+    if (bad.status === 400) ok("batch-legs refuses a malformed tx hash");
+    else fail("batch-legs validation", `expected 400 on a malformed tx, got ${bad.status}`);
+  } catch (e) {
+    fail("batch-legs validation", String(e.message || e));
+  }
+  // ── the finalize preflight (the one-click L1 crank's server half) ──
+  // Three honest answers exist and the gate exercises them all: a malformed tx
+  // is refused; a real 4663 withdrawal answers with one of the three states
+  // and coherent fields; and a KNOWN CONFIRMED foreign withdrawal must come
+  // back "ready" carrying wallet-sendable calldata (or "spent" once somebody
+  // executes it — both are truthful ends of the ready path). The calldata
+  // itself was proven by eth_call on mainnet before this gate existed
+  // (scripts/finalize-probe.mjs); this asserts the route keeps producing it.
+  try {
+    const bad = await get("/api/burn-pipeline/finalize?tx=nonsense");
+    if (bad.status === 400) ok("finalize preflight refuses a malformed tx");
+    else fail("finalize preflight validation", `expected 400 on a malformed tx, got ${bad.status}`);
+  } catch (e) {
+    fail("finalize preflight validation", String(e.message || e));
+  }
+  try {
+    const pipe = await (await get("/api/burn-pipeline")).json().catch(() => null);
+    const mine = (pipe?.withdrawals ?? []).find((w) => w.chain === "robinhood");
+    if (!mine) ok("finalize preflight on our crossing skipped (none in flight)");
+    else {
+      const r = await get(`/api/burn-pipeline/finalize?tx=${mine.txHash}`, 30_000);
+      const d = await r.json();
+      if (!r.ok || !["waiting", "ready", "spent"].includes(d.status)) fail("finalize preflight (ours)", `expected an honest state, got ${r.status} ${JSON.stringify(d).slice(0, 120)}`);
+      else if (typeof d.position !== "number" || typeof d.confirmedSize !== "number") fail("finalize preflight (ours)", "position/confirmedSize missing — the modal's honesty line goes blank");
+      else if (d.status === "ready" && !(typeof d.data === "string" && d.data.startsWith("0x") && d.data.length > 200))
+        fail("finalize preflight (ours)", "says ready but carries no executable calldata");
+      else ok(`finalize preflight answers for our crossing (#${d.position} ${d.status}, confirmed through #${d.confirmedSize - 1})`);
+    }
+  } catch (e) {
+    fail("finalize preflight (ours)", String(e.message || e));
+  }
+  try {
+    // pos #1057, a real bare-ETH withdrawal already covered by a confirmed
+    // assertion and unexecuted as of 2026-08-16 — the ready path's live proof
+    const r = await get("/api/burn-pipeline/finalize?tx=0xd8342d42addc111f34e3ecaf4f77af402ac53e3b98d25d9f266e54dd27c30a23", 30_000);
+    const d = await r.json();
+    if (!r.ok) fail("finalize preflight (confirmed)", `HTTP ${r.status}`);
+    else if (d.status === "ready" && typeof d.data === "string" && d.data.length > 200 && String(d.to).toLowerCase() === "0xf0ce991ea4a0d2400a4ab49b20ae333f6dce3de9")
+      ok(`finalize preflight builds the ready crank (proof depth ${d.proofDepth}, ${(d.data.length - 2) / 2} calldata bytes to the Outbox)`);
+    else if (d.status === "spent") ok("finalize preflight reads the confirmed probe withdrawal as spent (someone executed it — still the truthful answer)");
+    else fail("finalize preflight (confirmed)", `expected ready-with-calldata or spent, got ${JSON.stringify(d).slice(0, 140)}`);
+  } catch (e) {
+    fail("finalize preflight (confirmed)", String(e.message || e));
+  }
+}
+
 // ── run ──────────────────────────────────────────────────────────────────────
 console.log(`🔍 Surface gate → ${target()}${QUICK ? " (quick)" : ""}${LIVE ? " (LIVE deployment)" : ""}\n`);
 try {
@@ -808,6 +1015,7 @@ try {
 
 await gateHealth();
 await gateCards();
+await gateBurnStreams(); // route shapes, so it is worth running against a live deployment too
 if (LIVE) {
   // Deployment drift is what --live exists to find, and pages + cards find it.
   // Everything below drives the webhook, which needs that deployment's own

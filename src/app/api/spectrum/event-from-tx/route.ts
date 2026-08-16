@@ -83,7 +83,7 @@ async function decode(receipt: TransactionReceipt, chain: "ethereum" | "base", t
           side: isBuy ? "buy" : "sell",
           symbol: sym,
           actor,
-          note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on ${chain === "base" ? "Base" : "Ethereum"}. 10% of the fee buys & burns PRISM`,
+          note: `${sym ? `$${sym} ` : ""}${isBuy ? "buy" : "sell"} on ${chain === "base" ? "Base" : "Ethereum"}. 25% of the fee buys & burns PRISM`,
         };
       } else if (t0 === TOPIC_V2.auctionBridgedToBurnV2 && !burn) {
         const basket = getAddress("0x" + l.topics[1].slice(26));

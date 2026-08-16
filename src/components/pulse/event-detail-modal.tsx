@@ -6,8 +6,12 @@ import type { ActivityEvent } from "@/lib/feed/types";
 import type { IndexData } from "@/lib/spectrum/index-data";
 import { eventColor, eventSourceLabel, eventTitle, fmtEth, fmtPrism, fmtUsdFull, relTime } from "@/lib/feed/format";
 import { eventShareUrl } from "@/lib/feed/share";
-import { BASKET_BURN_SHARE, PRISM as PRISM_ADDR, txUrl, addrUrl } from "@/lib/chain/constants";
+import { BASKET_BURN_SHARE, WRAPPER_BURN_SHARE, PRISM as PRISM_ADDR, txUrl, addrUrl } from "@/lib/chain/constants";
 import { BasketBento } from "@/components/spectrum/basket-bento";
+import Link from "next/link";
+import { tokenVisual } from "@/lib/spectrum/token-visual";
+import { TILE_INSET } from "@/lib/spectrum/bento-style";
+import { CrankBurnButton, type PendingCollector } from "./crank-burn";
 
 // ── Basket-activity detail popup ──────────────────────────────────────────────
 // Clicking a basket event in the live feed opens this centered modal instead of
@@ -25,6 +29,9 @@ function fmtPct(n: number): string {
   return `${n >= 0.01 ? n.toFixed(2) : n.toFixed(4)}%`;
 }
 
+// the batch card's headline glow (portfolio indigo)
+const glowIndigo = { textShadow: "0 0 28px rgba(92,124,250,0.45)" } as const;
+
 // The action's cost figure + the PRISM burn it produces (estimated at spot
 // where the burn hasn't executed yet; actual where the event IS the burn).
 function burnFigures(e: ActivityEvent, ethUsd: number, prismUsd: number) {
@@ -38,6 +45,47 @@ function burnFigures(e: ActivityEvent, ethUsd: number, prismUsd: number) {
       };
     }
     case "fee": {
+      // A PRISM-pool fee carries its amounts in ETH (eth = the fee, tradeEth =
+      // the swap that produced it); a basket fee carries them in USD. Reading
+      // only the USD fields printed "$0 FEE" on every pool swap.
+      if (e.source === "wrapper") {
+        const feeEth = e.eth ?? 0;
+        const sizeUsd = (e.tradeEth ?? 0) * ethUsd;
+        return {
+          cost: {
+            value: e.tradeEth != null ? fmtUsdFull(sizeUsd) : feeEth > 0 ? `Ξ${fmtEth(feeEth)}` : "—",
+            label: e.tradeEth != null ? "Swap size" : "Wrapper fee",
+            sub: feeEth > 0 ? `Ξ${fmtEth(feeEth)} fee (40 bps)` : undefined,
+          },
+          // MEASURED when the event carries its burn cut (gen-3 burns the
+          // whole fee; the old build split 7:1). Events that predate the
+          // measured field are old-generation, so the 7/8 estimate is right
+          // for exactly the events that fall back to it.
+          burn:
+            e.burnEth != null
+              ? {
+                  value: fmtUsdFull(e.burnEth * ethUsd),
+                  label: "Burn cut",
+                  sub: e.eth != null && e.burnEth >= e.eth ? "the whole fee, measured" : "measured off the fee event",
+                  actual: true,
+                }
+              : { value: est(feeEth * WRAPPER_BURN_SHARE * ethUsd), label: "Est. PRISM burn", sub: "7/8 of the fee", actual: false },
+        };
+      }
+      if (e.source === "prism-pool" || e.source === "dstable") {
+        const feeEthUsd = (e.eth ?? 0) * ethUsd;
+        const sizeUsd = (e.tradeEth ?? 0) * ethUsd;
+        return {
+          cost: {
+            value: e.tradeEth ? fmtUsdFull(sizeUsd) : fmtUsdFull(feeEthUsd),
+            label: e.tradeEth ? "Swap size" : "Fee to holders",
+            sub: e.tradeEth ? `Ξ${fmtEth(e.eth)} fee to holders` : `Ξ${fmtEth(e.eth)}`,
+          },
+          // This is the ETH leg, which is entirely holders' — the PRISM leg of a
+          // pool fee is the one that burns, and it is its own event.
+          burn: { value: null, label: "To holders", sub: "the ETH leg is all holders'", actual: false },
+        };
+      }
       const feeUsd = e.usd ?? 0;
       return {
         cost: {
@@ -45,7 +93,40 @@ function burnFigures(e: ActivityEvent, ethUsd: number, prismUsd: number) {
           label: e.tradeUsd != null ? "Trade size" : "Fee",
           sub: e.tradeUsd != null ? `${fmtUsdFull(feeUsd)} fee` : undefined,
         },
-        burn: { value: est(feeUsd * BASKET_BURN_SHARE), label: "Est. PRISM burn", sub: "10% of the fee", actual: false },
+        burn: { value: est(feeUsd * BASKET_BURN_SHARE), label: "Est. PRISM burn", sub: "25% of the fee", actual: false },
+      };
+    }
+    case "batch": {
+      const funding = e.usd ?? 0;
+      // the designer (2026-08-15): showcase the batcher fee and its PRISM burn. The
+      // burn share is the tx's own BurnShareDelivered — MEASURED, never a
+      // ruled percentage (the burn:integrator ruling q-158 stays open) — and
+      // the PRISM figure is that dollar amount at spot, the same estimate
+      // basis every basket card uses.
+      return {
+        cost: {
+          value: fmtUsdFull(funding),
+          label: "Batch funding",
+          sub: e.legs ? `${e.legs} asset${e.legs === 1 ? "" : "s"}, one signature` : undefined,
+        },
+        burn:
+          e.burnUsd != null && e.burnUsd > 0
+            ? {
+                value: est(e.burnUsd),
+                label: "Est. PRISM burn",
+                // STAGED, not burned: the batcher delivers the cut to the
+                // collector; the permissionless bridge crank pushes it to the
+                // L1 burner where PRISM actually dies (SpectrumContracts'
+                // three-stage read, 2026-08-15)
+                sub: `$${e.burnUsd.toFixed(2)} of the $${(e.feeUsd ?? 0).toFixed(2)} fee, staged for the burn`,
+                actual: false,
+              }
+            : {
+                value: null,
+                label: "PRISM burn",
+                sub: e.feeUsd != null && e.feeUsd > 0 ? `$${e.feeUsd.toFixed(2)} batcher fee, a share burns PRISM` : "a share of the fee burns PRISM",
+                actual: false,
+              },
       };
     }
     case "burn": {
@@ -97,6 +178,32 @@ export function EventDetailModal({
   const [burnHit, setBurnHit] = useState<{ txHash: string; prism: number; pct: number } | null>(null);
   // Best-effort basket attribution for burner burns: the launch that fed it.
   const [viaLaunch, setViaLaunch] = useState<{ address: string; label?: string } | null>(null);
+  // batch enrichment, both lazy — only a batch card pays for them: the assets
+  // the batch actually bought (its own receipt) and the staged burn's crank
+  const [batchLegs, setBatchLegs] = useState<{ token: string; symbol: string; usd: number; buyHref: string | null }[] | null>(null);
+  const [crankTarget, setCrankTarget] = useState<PendingCollector | null>(null);
+  useEffect(() => {
+    if (e.kind !== "batch") return;
+    let alive = true;
+    if (e.txHash)
+      fetch(`/api/spectrum/batch-legs?tx=${e.txHash}&chain=${e.chain ?? "ethereum"}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { legs?: { token: string; symbol: string; usd: number; buyHref: string | null }[] } | null) => {
+          if (alive && j?.legs?.length) setBatchLegs(j.legs);
+        })
+        .catch(() => {});
+    fetch("/api/burn-pipeline")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { collectors?: PendingCollector[] } | null) => {
+        if (!alive || !j?.collectors) return;
+        const c = j.collectors.find((x) => x.chain === e.chain && x.flushable);
+        if (c) setCrankTarget(c);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [e.kind, e.txHash, e.chain]);
   const panelRef = useRef<HTMLDivElement>(null);
   const [imgState, setImgState] = useState<"idle" | "busy" | "copied" | "saved">("idle");
   const [linkCopied, setLinkCopied] = useState(false);
@@ -189,13 +296,15 @@ export function EventDetailModal({
     const sym = data?.symbol || e.symbol;
     const tag = sym ? ` ($${sym})` : "";
     const line =
-      e.kind === "launch"
-        ? `A new basket has been deployed on Spectrum · ${name}${tag}.`
-        : e.kind === "fee"
-          ? `${name}${tag} just traded on Spectrum. Every fee feeds the PRISM burn.`
-          : burnHit
-            ? `${name}${tag} just burned ${fmtToken(burnHit.prism)} PRISM on Spectrum.`
-            : `${name}${tag} basket revenue is heading into the PRISM burn.`;
+      e.kind === "batch"
+        ? `A ${e.usd != null ? fmtUsdFull(e.usd) + " " : ""}portfolio batch just executed on Spectrum${e.legs ? ` · ${e.legs} asset${e.legs === 1 ? "" : "s"}` : ""}. One signature, every leg filled on-chain.`
+        : e.kind === "launch"
+          ? `A new basket has been deployed on Spectrum · ${name}${tag}.`
+          : e.kind === "fee"
+            ? `${name}${tag} just traded on Spectrum. Every fee feeds the PRISM burn.`
+            : burnHit
+              ? `${name}${tag} just burned ${fmtToken(burnHit.prism)} PRISM on Spectrum.`
+              : `${name}${tag} basket revenue is heading into the PRISM burn.`;
     const text = `${line}\n\nView it on Prism Beat:\n${eventShareUrl(e)}`;
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   };
@@ -210,6 +319,9 @@ export function EventDetailModal({
     const fail = () => {
       if (alive) setFailed(true);
     };
+    // A batch's actor is the recipient WALLET, not a basket — reading it as
+    // one would 404 and flash "Basket detail unavailable" over a valid event.
+    if (e.kind === "batch") return;
     if (!e.actor) {
       fail();
       return;
@@ -257,7 +369,15 @@ export function EventDetailModal({
     };
   }, [onClose]);
 
-  const name = data?.name || e.label || (e.kind === "burn" ? "PRISM buy & burn" : "Basket");
+  // A PRISM-pool swap has no basket behind it, so the basket fallbacks must not
+  // claim one. Surfaced when the money map made every wire chip clickable: pool
+  // swaps dominate the wire and every one of them opened titled "Basket".
+  const isPoolSwap = e.source === "prism-pool" || e.source === "dstable";
+  const isBatch = e.kind === "batch";
+  const name =
+    data?.name ||
+    e.label ||
+    (e.kind === "burn" ? "PRISM buy & burn" : isBatch ? "Portfolio batch" : isPoolSwap ? "PRISM pool swap" : "Basket");
   const symbol = data?.symbol || e.symbol;
   const holdings = (data?.holdings ?? [])
     .map((h) => ({
@@ -267,7 +387,9 @@ export function EventDetailModal({
     }))
     .filter((h) => h.weightPct > 0);
   const figs = burnFigures(e, ethUsd, prismUsd);
-  const chainLabel = e.chain === "base" ? "Base" : "Ethereum";
+  // robinhood events were labeled "Ethereum" here — the binary ternary predates
+  // the third chain (caught wiring the batch events, which ride all three)
+  const chainLabel = e.chain === "base" ? "Base" : e.chain === "robinhood" ? "Robinhood" : "Ethereum";
 
   const body = (
     <div className="fixed inset-0 z-[90] grid place-items-center p-4 sm:p-6" role="dialog" aria-modal="true" onClick={onClose}>
@@ -346,16 +468,20 @@ export function EventDetailModal({
                   below instead — a tile above it would say the same thing twice. */}
               {figs.burn && e.kind === "fee" && (
                 <Tile
+                  // a flame belongs on a burn — a pool swap's ETH leg goes to
+                  // holders and gets the holders' glyph instead
                   value={
                     burnHit
                       ? `🔥 ${fmtToken(burnHit.prism)}`
                       : figs.burn.value != null
                         ? `🔥 ~${fmtToken(figs.burn.value as number)}`
-                        : "🔥 —"
+                        : isPoolSwap
+                          ? "💧 100%"
+                          : "🔥 —"
                   }
                   label={burnHit ? "PRISM burned" : figs.burn.label}
                   sub={burnHit ? "confirmed on-chain" : figs.burn.sub}
-                  color="#f59e0b"
+                  color={isPoolSwap && !burnHit ? "#34d399" : "#f59e0b"}
                 />
               )}
               {data && <Tile value={`$${fmtToken(data.navPerToken, 4)}`} label="NAV / token" sub={`supply ${fmtToken(data.totalSupply)}`} />}
@@ -507,9 +633,161 @@ export function EventDetailModal({
                     </div>
                   </div>
                 </div>
+              ) : isBatch ? (
+                // The share-card FACE (this is what "Copy image" exports):
+                // less text, more light (the designer, 2026-08-15). Aura ground +
+                // deterministic starfield, the funding figure in indigo glow,
+                // then the BURN TOTAL leading in orange with the fee drawn as
+                // a bar its burn share visibly fills. Every figure is the
+                // transaction's own; the percentage is their ratio; a batch
+                // whose burn share was diverted claims no burn. All static
+                // CSS/SVG, so the image capture can never catch a mid-frame.
+                <div className="relative flex h-full min-h-[380px] flex-col items-center justify-center gap-5 overflow-hidden px-8 py-10 text-center">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      background:
+                        "radial-gradient(90% 70% at 50% 28%, rgba(92,124,250,0.16) 0%, rgba(0,0,0,0) 60%), radial-gradient(70% 55% at 50% 96%, rgba(255,94,0,0.12) 0%, rgba(0,0,0,0) 55%)",
+                    }}
+                  />
+                  <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full opacity-60">
+                    {Array.from({ length: 26 }, (_, i) => {
+                      const h = (i * 2654435761) % 4294967296;
+                      return (
+                        <circle
+                          key={i}
+                          cx={`${h % 100}%`}
+                          cy={`${(h >>> 10) % 100}%`}
+                          r={0.6 + ((h >>> 20) % 10) / 12}
+                          fill="#e2e8f0"
+                          opacity={0.05 + ((h >>> 6) % 8) / 60}
+                        />
+                      );
+                    })}
+                  </svg>
+
+                  {/* ── zone 1 · the hero: what happened and what it bought ── */}
+                  <div className="relative flex flex-col items-center gap-3">
+                    <span
+                      className="rounded-full border px-3 py-1 text-[9px] font-bold uppercase tracking-[0.24em]"
+                      style={{ color: "#8fa3ff", borderColor: "rgba(92,124,250,0.35)", background: "rgba(92,124,250,0.08)" }}
+                    >
+                      Spectrum Portfolio
+                    </span>
+                    <div className="text-6xl font-black tabular-nums text-white" style={glowIndigo}>
+                      {fmtUsdFull(e.usd ?? 0)}
+                    </div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      {e.legs ? `${e.legs} asset${e.legs === 1 ? "" : "s"} · ` : ""}one signature · every leg on-chain
+                    </div>
+                    {batchLegs && batchLegs.length > 0 && (
+                      <div className="flex flex-wrap items-stretch justify-center gap-2">
+                        {batchLegs.slice(0, 8).map((leg) => {
+                          const vis = tokenVisual(leg.symbol, leg.token);
+                          const inner = (
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-[13px] font-black" style={{ color: vis.ink }}>
+                                {leg.symbol}
+                              </span>
+                              <span className="text-[12px] font-bold tabular-nums" style={{ color: vis.ink, opacity: 0.88 }}>
+                                {fmtUsdFull(leg.usd)}
+                              </span>
+                              <span className="text-[9px] font-black uppercase tracking-[0.14em]" style={{ color: vis.ink, opacity: 0.9 }}>
+                                {leg.buyHref ? "Buy →" : "↗"}
+                              </span>
+                            </div>
+                          );
+                          const style = { background: vis.color, boxShadow: TILE_INSET.sm } as React.CSSProperties;
+                          return leg.buyHref ? (
+                            <Link key={leg.token} href={leg.buyHref} className="rounded-lg px-3.5 py-2 transition-transform hover:scale-105" style={style} title={`Buy ${leg.symbol}`}>
+                              {inner}
+                            </Link>
+                          ) : (
+                            <a
+                              key={leg.token}
+                              href={addrUrl(leg.token, e.chain)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-lg px-3.5 py-2 transition-transform hover:scale-105"
+                              style={style}
+                              title={`${leg.symbol} on the explorer`}
+                            >
+                              {inner}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── zone 2 · the burn panel: every burn fact in ONE frame,
+                      the crank as its own footer — the messy stack of loose
+                      centred lines read as noise (the designer, 2026-08-15) ── */}
+                  <div
+                    className="relative w-full max-w-[360px] rounded-2xl border px-5 pb-4 pt-4"
+                    style={{
+                      borderColor: "rgba(255,94,0,0.3)",
+                      background: "linear-gradient(180deg, rgba(255,94,0,0.10) 0%, rgba(255,94,0,0.03) 60%, rgba(0,0,0,0.2) 100%)",
+                      boxShadow: "0 8px 34px rgba(255,94,0,0.12), inset 0 1px 0 rgba(255,159,69,0.18)",
+                    }}
+                  >
+                    <div className="text-[9px] font-bold uppercase tracking-[0.26em]" style={{ color: "rgba(255,159,69,0.9)" }}>
+                      The burn
+                    </div>
+                    {e.burnUsd != null && e.burnUsd > 0 ? (
+                      <>
+                        <div className="mt-2 text-4xl font-black tabular-nums" style={{ color: "#FF5E00", textShadow: "0 0 26px rgba(255,94,0,0.5)" }}>
+                          ${e.burnUsd.toFixed(2)}
+                        </div>
+                        <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          {prismUsd > 0 ? `≈ ${fmtPrism(e.burnUsd / prismUsd)} PRISM · ` : ""}staged to buy &amp; burn
+                        </div>
+                        {e.feeUsd != null && e.feeUsd > 0 && (
+                          <>
+                            <div className="relative mt-3 h-2 w-full overflow-hidden rounded-full" style={{ background: "rgba(148,163,184,0.15)" }}>
+                              <div
+                                className="absolute inset-y-0 left-0 rounded-full"
+                                style={{
+                                  width: `${Math.min(100, (e.burnUsd / e.feeUsd) * 100)}%`,
+                                  background: "linear-gradient(90deg, #FF5E00, #FF9F45)",
+                                  boxShadow: "0 0 12px rgba(255,94,0,0.7)",
+                                }}
+                              />
+                            </div>
+                            <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              {Math.round((e.burnUsd / e.feeUsd) * 100)}% of the ${e.feeUsd.toFixed(2)} batcher fee
+                            </div>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="mt-2 text-3xl font-black tabular-nums text-slate-200">${(e.feeUsd ?? 0).toFixed(2)}</div>
+                        <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">batcher fee</div>
+                      </>
+                    )}
+                    {crankTarget && (
+                      <div className="mt-4 border-t pt-4" style={{ borderColor: "rgba(255,94,0,0.2)" }}>
+                        <CrankBurnButton collector={crankTarget} onDone={() => setCrankTarget(null)} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* the brand's seven bands, the only footer */}
+                  <div className="relative flex items-center gap-1.5" aria-hidden>
+                    {["#ff5a5a", "#ff9f45", "#ffe14d", "#5cff8f", "#3bd9ff", "#7c8bff", "#c06aff"].map((c) => (
+                      <span key={c} className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
+                    ))}
+                  </div>
+                </div>
               ) : (
-                <div className="grid h-full place-items-center text-[12px] text-slate-500 font-mono">
-                  {failed ? "Basket detail unavailable" : "Reading the basket…"}
+                <div className="grid h-full place-items-center px-8 text-center text-[12px] text-slate-500 font-mono">
+                  {isPoolSwap
+                    ? "A swap on the PRISM pool itself. No basket behind this one. The fee routes straight to holders."
+                    : failed
+                      ? "Basket detail unavailable"
+                      : "Reading the basket…"}
                 </div>
               )}
             </div>

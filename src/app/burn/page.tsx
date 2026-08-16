@@ -7,9 +7,9 @@ import { BurnBoard } from "@/components/mothership/burn-board";
 // the pipeline is automatic, so the site shows it and anyone can push it).
 
 export const metadata: Metadata = {
-  title: "Burn pipeline · The Prism Mothership",
+  title: "The burn crank · The Prism Mothership",
   description:
-    "Every pending PRISM-burn accrual across the ecosystem, stage by stage, and a permissionless crank for each. A flush on an L2 is a burn initiated; PRISM only dies at the L1 burner.",
+    "Crank to trigger the burn. Every stage after a trade is a permissionless crank: three roads, live economics, and a board that ranks by value pushed. PRISM only dies at the L1 burner.",
 };
 
 export default function BurnPage() {

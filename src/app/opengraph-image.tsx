@@ -9,7 +9,7 @@ import { ImageResponse } from "next/og";
 // baseline so it can never fail to render. See liveStats() for the data path.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const alt = "Prismbeat · the Prism ecosystem, live on-chain";
+export const alt = "The Prism Mothership · the Prism ecosystem, live on-chain";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -108,7 +108,8 @@ export default async function OpengraphImage() {
           <div style={{ display: "flex", alignItems: "center", marginTop: 22 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={mark.src} width={mark.w} height={mark.h} alt="" style={{ marginRight: 26 }} />
-            <div style={{ fontSize: 112, fontWeight: 800, letterSpacing: -2 }}>Prismbeat</div>
+            {/* was "Prismbeat" at 112 — the pre-rebrand wordmark led every unfurl */}
+            <div style={{ fontSize: 86, fontWeight: 800, letterSpacing: -1.5 }}>The Prism Mothership</div>
           </div>
           <div style={{ display: "flex", marginTop: 18, fontSize: 34, color: "#cbd5e1" }}>
             The Prism ecosystem, live. Every burn, every trade, the second it lands.

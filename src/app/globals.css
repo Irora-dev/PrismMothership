@@ -7,6 +7,17 @@
    ============================================================ */
 
 :root {
+  /* dark-only site — makes UA scrollbars + native form controls render dark */
+  color-scheme: dark;
+}
+
+/* text selection in the brand's own light, not the UA's default blue */
+::selection {
+  background: rgba(0, 240, 255, 0.24);
+  color: #f8fafc;
+}
+
+:root {
   --bg-deep: #000000;
   --bg-panel: #0f1015;
   --text-heading: #f8fafc;
@@ -127,6 +138,28 @@ body {
   100% { transform: translateX(-50%); }
 }
 /* the /claim post-claim celebration */
+/* the burn furnace (/burn hero): sparks fall in, the pot erupts on a burn */
+@keyframes furnace-fall {
+  0% { transform: translate(var(--dx0), -10px) scale(1); opacity: 0; }
+  10% { opacity: 0.95; }
+  100% { transform: translate(var(--dx1), var(--fy)) scale(0.45); opacity: 0; }
+}
+@keyframes furnace-burst {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--bx), var(--by)) scale(0.3); opacity: 0; }
+}
+@keyframes furnace-shock {
+  0% { transform: scale(0.25); opacity: 0.85; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+@keyframes prism-ember {
+  0% { transform: translateY(0) scale(1); opacity: 0.9; }
+  100% { transform: translateY(-26px) scale(0.55); opacity: 0; }
+}
+@keyframes prism-burnglow {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 94, 0, 0.5)); }
+  50% { filter: drop-shadow(0 0 16px rgba(255, 10, 60, 0.8)); }
+}
 @keyframes prism-confetti {
   0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.4); opacity: 0; }
@@ -775,4 +808,47 @@ html[data-ms-boot]::before {
 /* how-it-works: money flowing along the split diagram's beams (dash march) */
 @keyframes ms-beam-flow {
   to { stroke-dashoffset: -28; }
+}
+/* the money map's prism aura, breathing slowly */
+@keyframes mm-breathe {
+  0%, 100% { opacity: 0.05; }
+  50% { opacity: 0.11; }
+}
+/* the fee pipeline (/command): dots drifting along the joints toward the burn
+   pool, and the pool itself breathing. Animated only while value is in flight. */
+@keyframes ms-flow-x {
+  from { left: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  to { left: 100%; opacity: 0; }
+}
+@keyframes ms-flow-y {
+  from { top: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  to { top: 100%; opacity: 0; }
+}
+@keyframes ms-pool {
+  0%, 100% { transform: translateX(-50%) scaleY(1); opacity: 0.8; }
+  50% { transform: translateX(-50%) scaleY(1.18); opacity: 1; }
+}
+/* a fresh event landing on a pipeline source: one quick pop, keyed by event id */
+@keyframes ms-blip {
+  from { opacity: 0; transform: translateY(3px) scale(1.12); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* the fee pipeline is ALL motion by design — drifting dots, marching rails,
+     orbiting rings, a breathing pool. Every one of them is decorative (the
+     numbers say the same thing), so the whole surface holds still on request.
+     ms-beam-flow and spin are shared, hence the attribute match rather than a
+     blanket keyframe kill. */
+  [style*="ms-flow-x"], [style*="ms-flow-y"], [style*="ms-pool"],
+  [style*="ms-beam-flow"], [style*="ms-blip"], [style*="spin "], [style*="mm-breathe"],
+  /* the deck's feed-arrival pop is applied inline for the same tree-shake
+     reason, so it needs the attribute match too */
+  [style*="feed-pop"],
+  /* celebrations (claim + burner crank): a still frame instead of a burst */
+  [style*="prism-confetti"], [style*="prism-celebrate"], [style*="prism-ember"], [style*="prism-burnglow"],
+  [style*="furnace-fall"], [style*="furnace-burst"], [style*="furnace-shock"] { animation: none !important; }
 }

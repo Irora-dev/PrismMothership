@@ -97,7 +97,7 @@ function figuresFor(e: ActivityEvent, ethUsd: number): Figure[] {
     case "fee":
       if (e.source === "spectrum-index" && e.tradeUsd != null) {
         const figs: Figure[] = [{ value: fmtUsdFull(e.tradeUsd), label: "Total swap" }];
-        // The headline second figure is PRISM's slice — the fixed 10% of the
+        // The headline second figure is PRISM's slice — the fixed 25% of the
         // basket fee that buys & burns — not the (misleading) total fee.
         if (e.usd != null) figs.push({ value: fmtUsdFull(e.usd * BASKET_BURN_SHARE), label: "PRISM fee" });
         return figs;
@@ -115,6 +115,11 @@ function figuresFor(e: ActivityEvent, ethUsd: number): Figure[] {
     case "retire":
     case "nft":
       return [{ value: fmtPrism(e.prism), label: e.kind === "nft" ? "NFT minted" : "NFT retired" }];
+    case "batch": {
+      const figs: Figure[] = [{ value: usdOrEth, label: "Batch funding" }];
+      if (e.legs) figs.push({ value: String(e.legs), label: e.legs === 1 ? "Asset" : "Assets" });
+      return figs;
+    }
   }
 }
 
