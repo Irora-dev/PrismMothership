@@ -184,7 +184,7 @@ interface DexPair {
   liquidity?: { usd?: number };
 }
 
-async function fetchDexPrices(addresses: string[], slug: string | null): Promise<Map<string, DexPair>> {
+export async function fetchDexPrices(addresses: string[], slug: string | null): Promise<Map<string, DexPair>> {
   const out = new Map<string, DexPair>();
   if (addresses.length === 0 || !slug) return out; // no DexScreener coverage → unpriced
   const url = `https://api.dexscreener.com/tokens/v1/${slug}/${addresses.join(",")}`;

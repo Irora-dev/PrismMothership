@@ -799,12 +799,22 @@ export function MoneyMap() {
       // flies whole — nothing is invented (the ruled split is the open q-158).
       const parts =
         ev?.kind === "batch"
-          ? ev.burnUsd != null && ev.feeUsd != null && ev.feeUsd > 0 && ev.burnUsd > 0
-            ? [
-                { dest: "burn" as DestKey, frac: Math.min(1, ev.burnUsd / ev.feeUsd) },
-                { dest: "interfaces" as DestKey, frac: Math.max(0, 1 - ev.burnUsd / ev.feeUsd) },
-              ]
-            : []
+          ? (() => {
+              // MEASURED per transaction: a DELIVERED burn share fragments as
+              // before; a DIVERTED one also flies the burn lane — it is
+              // captured burn money parked at the fallback (the designer's 2026-08-18
+              // ruling counts it as prepping to burn), and the event's own
+              // note says diverted. A batch with neither still flies whole.
+              const burnShare = ev.burnUsd ?? ev.divertedUsd;
+              if (burnShare != null && ev.feeUsd != null && ev.feeUsd > 0 && burnShare > 0) {
+                const frac = Math.min(1, burnShare / ev.feeUsd);
+                return [
+                  { dest: "burn" as DestKey, frac },
+                  ...(frac < 1 ? [{ dest: "interfaces" as DestKey, frac: 1 - frac }] : []),
+                ];
+              }
+              return [];
+            })()
           : ev?.source === "wrapper"
             ? feeUsd > 0
               ? (() => {

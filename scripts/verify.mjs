@@ -877,12 +877,26 @@ async function gateBurnStreams() {
     else if (d.batcher === null) fail("portfolio stream is live", "batcher is null after the gen-3 ceremony — the portfolio stream regressed to dark");
     else if (String(d.batcher.address).toLowerCase() !== "0xfb4646c26cfbbe8d4682aeb42e90b1ab8159764f")
       fail("portfolio stream is live", `batcher address is ${String(d.batcher.address).slice(0, 12)}, not the verified gen-3 production batcher`);
-    else if (typeof d.batcher.volumeUsd !== "number" || typeof d.batcher.feesUsd !== "number" || typeof d.batcher.deliveredEth !== "number" || typeof d.batcher.batches !== "number")
-      fail("portfolio stream is live", "the batcher payload lost volumeUsd/feesUsd/deliveredEth/batches — the card would render undefined");
+    else if (typeof d.batcher.volumeUsd !== "number" || typeof d.batcher.feesUsd !== "number" || typeof d.batcher.deliveredEth !== "number" || typeof d.batcher.divertedUsd !== "number" || typeof d.batcher.batches !== "number")
+      fail("portfolio stream is live", "the batcher payload lost volumeUsd/feesUsd/deliveredEth/divertedUsd/batches — the card would render undefined");
     else if ("burnedPrism" in d.batcher)
       fail("portfolio stream is live", "the batcher payload claims a burnedPrism figure — the pot is fungible, that number cannot be measured per-stream");
     else
-      ok(`portfolio stream is LIVE off the gen-3 batchers (${d.batcher.batches} batches · $${d.batcher.volumeUsd.toFixed(2)} vol · Ξ${d.batcher.deliveredEth.toFixed(4)} sent to the burn)`);
+      ok(`portfolio stream is LIVE off the gen-3 batchers (${d.batcher.batches} batches · $${d.batcher.volumeUsd.toFixed(2)} vol · Ξ${d.batcher.deliveredEth.toFixed(4)} delivered · $${d.batcher.divertedUsd.toFixed(2)} diverted to the fallback)`);
+    // the fallback stage: captured burn money that could not enter the ETH-only
+    // path — its assets are event-derived ONLY (the wallet holds symbol-squatting
+    // spam, incl. two fake USDGs; a spam symbol appearing here means discovery
+    // regressed to raw transfers)
+    if (r.ok && d.fallback != null) {
+      if (String(d.fallback.address).toLowerCase() !== "0x2f2508e334bd34015e5fda79c9d2c0555096c572")
+        fail("the fallback stage", "fallback.address is not the verified BURN_FALLBACK_SINK");
+      else if (!Array.isArray(d.fallback.assets) || typeof d.fallback.totalUsd !== "number")
+        fail("the fallback stage", "fallback payload malformed — the journey line would render undefined");
+      else if (d.fallback.assets.some((a) => !a?.chain || !a?.address || typeof a?.amount !== "number"))
+        fail("the fallback stage", "a fallback asset row is malformed");
+      else
+        ok(`the fallback stage counts captured burn money ($${d.fallback.totalUsd.toFixed(2)} across ${d.fallback.assets.length} event-derived assets)`);
+    }
     // the crank surfaces read `collectors` from the same payload — every chip
     // and button keys on pendingEth + flushable, and a dropped field fails
     // quietly into "no staged burn" while flushable money sits invisible

@@ -142,12 +142,22 @@ function burnFigures(e: ActivityEvent, ethUsd: number, prismUsd: number) {
                 sub: `$${e.burnUsd.toFixed(2)} of the $${(e.feeUsd ?? 0).toFixed(2)} fee, staged for the burn`,
                 actual: false,
               }
-            : {
-                value: null,
-                label: "PRISM burn",
-                sub: e.feeUsd != null && e.feeUsd > 0 ? `$${e.feeUsd.toFixed(2)} batcher fee, a share burns PRISM` : "a share of the fee burns PRISM",
-                actual: false,
-              },
+            : e.divertedUsd != null && e.divertedUsd > 0
+              ? {
+                  // DIVERTED, not delivered: the burn swap did not run, so the
+                  // whole share parked at the fallback in the funding asset —
+                  // captured for the burn, waiting on the operator sweep
+                  value: est(e.divertedUsd),
+                  label: "Burn share, diverted",
+                  sub: `$${e.divertedUsd.toFixed(2)} of the fee parked at the fallback · awaiting the sweep`,
+                  actual: false,
+                }
+              : {
+                  value: null,
+                  label: "PRISM burn",
+                  sub: e.feeUsd != null && e.feeUsd > 0 ? `$${e.feeUsd.toFixed(2)} batcher fee, a share burns PRISM` : "a share of the fee burns PRISM",
+                  actual: false,
+                },
       };
     }
     case "burn": {

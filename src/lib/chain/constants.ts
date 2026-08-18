@@ -260,6 +260,8 @@ export const TOPIC_BATCH = {
   legFilled: id("LegFilled(address,address,uint256,uint256)"),
   batchLegFilled: id("BatchLegFilled(address,address,uint8,uint256,uint256)"),
   burnShareDelivered: id("BurnShareDelivered(address,uint256,uint256)"), // (sink idx, fundingSpent, ethDelivered) — the fee's burn share, MEASURED
+  burnDiverted: id("BurnDiverted(address,address,uint256,bytes)"), // (sink idx, fundingAsset idx, amount, reason) — the burn share PARKED at the fallback, in funding
+  burnRemainderDiverted: id("BurnRemainderDiverted(address,address,uint256)"), // (sink idx, fundingAsset idx, amount) — swap remainder parked the same way
 } as const;
 
 // The collector's flush event: the burn cut leaving the L2 on its ~7-day

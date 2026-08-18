@@ -414,19 +414,28 @@ function num(v: bigint, decimals = 18): number {
 function decodeBatchEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number): ActivityEvent[] {
   const legsByTx = new Map<string, number>();
   const burnByTx = new Map<string, number>();
+  const divByTx = new Map<string, number>();
   for (const l of logs) {
     if (l.topics[0] === TOPIC_BATCH.legFilled || l.topics[0] === TOPIC_BATCH.batchLegFilled)
       legsByTx.set(l.transactionHash, (legsByTx.get(l.transactionHash) ?? 0) + 1);
     // the fee's burn share, as the batcher actually DELIVERED it — measured,
-    // never a ruled percentage (the burn:integrator split is the open q-158).
-    // BurnDiverted deliberately does NOT count: diverted is visibly not burnt.
-    if (l.topics[0] === TOPIC_BATCH.burnShareDelivered) {
-      try {
+    // never a ruled percentage. A DIVERTED share is tracked separately: it is
+    // captured burn money parked at the fallback (the designer's 2026-08-18 ruling
+    // counts it as prepping to burn), visibly NOT yet burnt — the first real
+    // gen-3 batch ($6,645 LienFi, fee $16.57) diverted its whole share.
+    try {
+      if (l.topics[0] === TOPIC_BATCH.burnShareDelivered) {
         const d = abi.decode(["uint256", "uint256"], l.data);
         burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint, 6));
-      } catch {
-        /* skip malformed */
+      } else if (l.topics[0] === TOPIC_BATCH.burnDiverted) {
+        const d = abi.decode(["uint256", "bytes"], l.data);
+        divByTx.set(l.transactionHash, (divByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint, 6));
+      } else if (l.topics[0] === TOPIC_BATCH.burnRemainderDiverted) {
+        const d = abi.decode(["uint256"], l.data);
+        divByTx.set(l.transactionHash, (divByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint, 6));
       }
+    } catch {
+      /* skip malformed */
     }
   }
   const out: ActivityEvent[] = [];
@@ -443,22 +452,31 @@ function decodeBatchEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number):
         actor: `0x${l.topics[1].slice(26)}`,
         note: "A batched portfolio execution: one signature, every leg filled on-chain",
       };
+      const diverted = divByTx.get(l.transactionHash);
+      const divertedNote =
+        diverted != null && diverted > 0 && !burnByTx.has(l.transactionHash)
+          ? "A batched portfolio execution: one signature, every leg on-chain — the fee's burn share diverted to the fallback, captured and awaiting the sweep"
+          : undefined;
       if (l.topics[0] === TOPIC_BATCH.executed5) {
         const d = abi.decode(["uint256", "uint256", "uint256"], l.data);
         out.push({
           ...base,
+          ...(divertedNote ? { note: divertedNote } : {}),
           usd: num(d[0] as bigint, 6),
           feeUsd: num(d[1] as bigint, 6),
           legs: legsByTx.get(l.transactionHash),
           burnUsd: burnByTx.get(l.transactionHash),
+          divertedUsd: diverted,
         });
       } else if (l.topics[0] === TOPIC_BATCH.executed7) {
         const d = abi.decode(["address", "uint256", "uint256", "uint256", "uint16", "uint16"], l.data);
         out.push({
           ...base,
+          ...(divertedNote ? { note: divertedNote } : {}),
           usd: num(d[1] as bigint, 6),
           legs: Number(d[4] as bigint) || legsByTx.get(l.transactionHash),
           burnUsd: burnByTx.get(l.transactionHash),
+          divertedUsd: diverted,
         });
       }
     } catch {
@@ -1701,7 +1719,7 @@ let inflight: Promise<FeedSnap> | null = null;
 // cursor sits AHEAD of any batch already on chain, so without the bump the
 // first batches the designer wants to share would never appear.
 interface FeedBlobSnap {
-  v: 7; // v7: wrapper events price by stable legs + carry wholeFeeBurn (2026-08-18); v6: wrapper swaps join the feed
+  v: 8; // v8: batch events carry divertedUsd (2026-08-18); v7: wrapper stable-leg pricing; v6: wrapper swaps join
   ethBlock: number;
   baseBlock: number;
   hoodBlock: number;
@@ -1721,7 +1739,7 @@ async function loadFeedSnap(): Promise<void> {
     const k = feedKey();
     if (!k) return; // pre-launch: no per-token key, nothing to restore
     const snap = (await blobs.get(k, { type: "json" })) as FeedBlobSnap | null;
-    if (!snap || snap.v !== 7 || !Array.isArray(snap.events)) return;
+    if (!snap || snap.v !== 8 || !Array.isArray(snap.events)) return;
     feedCache = {
       ethBlock: snap.ethBlock,
       baseBlock: snap.baseBlock,
@@ -1745,7 +1763,7 @@ async function persistFeedSnap(s: FeedSnap): Promise<void> {
     const blobs = await statsBlob();
     if (!blobs) return;
     const snap: FeedBlobSnap = {
-      v: 7,
+      v: 8,
       ethBlock: s.ethBlock,
       baseBlock: s.baseBlock,
       hoodBlock: s.hoodBlock,

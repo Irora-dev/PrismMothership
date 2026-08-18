@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { AbiCoder, Contract, formatEther, formatUnits, id, type JsonRpcProvider, type Log } from "ethers";
 import { getBaseProvider, getEthUsd, getHoodProvider, getProvider } from "@/lib/chain/live";
 import { listIndexes } from "@/lib/spectrum/index-data";
-import { ARB_SYS, DEAD, L1_PRISM_BURNER, PORTFOLIO_BATCHER_PROD, PORTFOLIO_BATCHER_WATCH, PORTFOLIO_COLLECTOR_WATCH, PRISM, SPECTRUM_LEGACY_FACTORIES, SPECTRUM_V2, SPECTRUM_V3_FACTORIES, TOPIC_ARB, TOPIC_BATCH, TOPIC_COLLECTOR, WRAPPER_WATCH } from "@/lib/chain/constants";
+import { ARB_SYS, BURN_FALLBACK_SINK, DEAD, L1_PRISM_BURNER, PORTFOLIO_BATCHER_PROD, PORTFOLIO_BATCHER_WATCH, PORTFOLIO_COLLECTOR_WATCH, PRISM, SPECTRUM_LEGACY_FACTORIES, SPECTRUM_V2, SPECTRUM_V3_FACTORIES, STABLE_BY_CHAIN, TOPIC_ARB, TOPIC_BATCH, TOPIC_COLLECTOR, TOPIC_WRAPPER, WRAPPER_WATCH } from "@/lib/chain/constants";
 import { confirmedSendCount, isSpent } from "@/lib/chain/orbit";
+import { fetchDexPrices } from "@/lib/spectrum/index-data";
 
 // ── The burn pipeline, read side ─────────────────────────────────────────────
 // the designer's ruling (2026-08-02, via SpectrumContracts' desk map): nothing in the
@@ -130,7 +131,7 @@ async function saveEvCache(): Promise<void> {
   }
 }
 
-async function scanLogs(p: JsonRpcProvider, key: string, address: string, topics: (string | null)[][] | string[], floor: number, chunk: number): Promise<RawEv[]> {
+async function scanLogs(p: JsonRpcProvider, key: string, address: string | string[], topics: (string | null)[][] | string[], floor: number, chunk: number): Promise<RawEv[]> {
   const head = await p.getBlockNumber();
   const c = (evCache[key] ??= { cursor: floor, logs: [] });
   let from = c.cursor;
@@ -464,16 +465,17 @@ async function build() {
   // BurnShareDelivered's ethDelivered. NO PRISM figure is claimed here — the
   // burner pot is fungible across every road, so per-stream PRISM attribution
   // would be an invention, not a measurement.
-  let batcher: { address: string; volumeUsd: number; feesUsd: number; deliveredEth: number; batches: number } | null = null;
+  let batcher: { address: string; volumeUsd: number; feesUsd: number; deliveredEth: number; divertedUsd: number; batches: number } | null = null;
   try {
     let volumeUsd = 0;
     let feesUsd = 0;
     let deliveredEth = 0;
+    let divertedUsd = 0;
     let batches = 0;
     for (const [chain, cfg] of Object.entries(PORTFOLIO_BATCHER_PROD)) {
       const p = providerOf(chain);
       if (!p) continue;
-      const logs = await scanLogs(p, `batch-prod-${chain}`, cfg.address, [[TOPIC_BATCH.executed5, TOPIC_BATCH.burnShareDelivered]], cfg.fromBlock, chain === "robinhood" ? 2_000_000 : 100_000);
+      const logs = await scanLogs(p, `batch-prod2-${chain}`, cfg.address, [[TOPIC_BATCH.executed5, TOPIC_BATCH.burnShareDelivered, TOPIC_BATCH.burnDiverted, TOPIC_BATCH.burnRemainderDiverted]], cfg.fromBlock, chain === "robinhood" ? 2_000_000 : 100_000);
       for (const l of logs) {
         if (l.topics[0] === TOPIC_BATCH.executed5) {
           volumeUsd += Number(formatUnits(BigInt(l.data.slice(0, 66)), 6));
@@ -481,12 +483,89 @@ async function build() {
           batches += 1;
         } else if (l.topics[0] === TOPIC_BATCH.burnShareDelivered) {
           deliveredEth += Number(formatEther(BigInt(`0x${l.data.slice(66, 130)}`)));
+        } else if (l.topics[0] === TOPIC_BATCH.burnDiverted || l.topics[0] === TOPIC_BATCH.burnRemainderDiverted) {
+          // the burn share that PARKED at the fallback in the funding asset
+          // (6dp) — captured for the burn, awaiting the operator sweep; the
+          // first real gen-3 batch diverted its whole $16.57 share
+          divertedUsd += Number(formatUnits(BigInt(l.data.slice(0, 66)), 6));
         }
       }
     }
-    batcher = { address: PORTFOLIO_BATCHER_PROD.ethereum.address, volumeUsd, feesUsd, deliveredEth, batches };
+    batcher = { address: PORTFOLIO_BATCHER_PROD.ethereum.address, volumeUsd, feesUsd, deliveredEth, divertedUsd, batches };
   } catch {
     /* a failed read keeps the stream dark rather than wrong */
+  }
+
+  // ── the fallback sink: burn money that could not enter the ETH-only path ──
+  // The wrapper charges ERC20-sell fees in the SELL ASSET, and the batcher's
+  // divert paths move funding-asset amounts — none of that fits the ETH-only
+  // collector/burner, so it parks at BURN_FALLBACK_SINK (an operator wallet)
+  // awaiting the sweep. It IS captured burn money (charged as the burn cut,
+  // never refundable), so the site counts it — as its OWN stage, never inside
+  // a crankable total. ⚠ Asset discovery comes ONLY from our own events (the
+  // chain's stable — every batcher divert is funding-asset — plus wrapper
+  // sell-assets whose FeeCharged names the fallback): the wallet also holds
+  // symbol-squatting spam (two fake USDGs and a fake WETH measured
+  // 2026-08-18), and event-derived discovery excludes it by construction.
+  // Balances are live; prices are the chain's stable at par or DexScreener
+  // spot, clearly best-effort (unpriced assets are counted by name, not $0).
+  let fallback: { address: string; totalUsd: number; unpriced: number; assets: { chain: string; address: string; symbol: string; amount: number; usd: number | null }[] } | null = null;
+  try {
+    const assets: { chain: string; address: string; symbol: string; amount: number; usd: number | null }[] = [];
+    for (const chain of ["ethereum", "base", "robinhood"] as const) {
+      const p = providerOf(chain);
+      if (!p) continue;
+      const discovered = new Map<string, true>();
+      const stable = STABLE_BY_CHAIN[chain];
+      discovered.set(stable.address.toLowerCase(), true);
+      // wrapper fees parked at the fallback: pair FeeCharged(sink=fallback)
+      // with the same tx's DirectSwap sellToken
+      const w = WRAPPER_WATCH[chain];
+      const logs = await scanLogs(p, `wrapfb-${chain}`, w.addresses, [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]], w.fromBlock, chain === "robinhood" ? 2_000_000 : 100_000);
+      const fbTx = new Set<string>();
+      for (const l of logs) {
+        const sink = l.topics[0] === TOPIC_WRAPPER.feeChargedWhole ? `0x${(l.topics[1] ?? "").slice(26)}` : l.topics[0] === TOPIC_WRAPPER.feeCharged ? `0x${(l.topics[2] ?? "").slice(26)}` : "";
+        if (sink.toLowerCase() === BURN_FALLBACK_SINK.toLowerCase()) fbTx.add(l.txHash);
+      }
+      for (const l of logs) {
+        if (l.topics[0] !== TOPIC_WRAPPER.directSwap || !fbTx.has(l.txHash)) continue;
+        const sell = `0x${(l.topics[2] ?? "").slice(26)}`.toLowerCase();
+        if (sell !== `0x${"0".repeat(40)}`) discovered.set(sell, true);
+      }
+      const held: { address: string; amount: number; symbol: string }[] = [];
+      for (const a of discovered.keys()) {
+        try {
+          const c = new Contract(a, ["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)", "function symbol() view returns (string)"], p);
+          const bal = (await c.balanceOf(BURN_FALLBACK_SINK)) as bigint;
+          if (bal === 0n) continue;
+          const dec = a === stable.address.toLowerCase() ? stable.decimals : Number((await c.decimals().catch(() => 18n)) as bigint | number);
+          const sym = a === stable.address.toLowerCase() ? stable.symbol : ((await c.symbol().catch(() => a.slice(0, 8))) as string);
+          held.push({ address: a, amount: Number(formatUnits(bal, dec)), symbol: sym });
+        } catch {
+          /* an unreadable token just doesn't list */
+        }
+      }
+      const toPrice = held.filter((h) => h.address !== stable.address.toLowerCase()).map((h) => h.address);
+      const prices = toPrice.length ? await fetchDexPrices(toPrice, chain).catch(() => new Map()) : new Map();
+      for (const h of held) {
+        const usd =
+          h.address === stable.address.toLowerCase()
+            ? h.amount
+            : (() => {
+                const px = Number((prices.get(h.address) as { priceUsd?: string | null } | undefined)?.priceUsd ?? NaN);
+                return Number.isFinite(px) && px > 0 ? h.amount * px : null;
+              })();
+        assets.push({ chain, address: h.address, symbol: h.symbol, amount: h.amount, usd });
+      }
+    }
+    fallback = {
+      address: BURN_FALLBACK_SINK,
+      totalUsd: assets.reduce((a, x) => a + (x.usd ?? 0), 0),
+      unpriced: assets.filter((x) => x.usd == null).length,
+      assets: assets.sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0)),
+    };
+  } catch {
+    /* a failed read leaves the stage unshown, never the route dead */
   }
 
   const burnerCrankCostEth = costOf(BURNER_CRANK_GAS);
@@ -521,6 +600,9 @@ async function build() {
     // addresses landed via SpectrumContracts' desk drop, per the standing
     // order, and were re-verified here before wiring).
     batcher,
+    // captured burn money parked at the fallback (sell assets / diverted
+    // funding) — its own honest stage, never inside a crankable total
+    fallback,
     generatedAt: Date.now(),
   };
 }

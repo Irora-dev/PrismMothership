@@ -79,7 +79,11 @@ interface Pipeline {
   // ETH actually sent toward the burn). Deliberately NO PRISM figure: the
   // burner pot is fungible across every road, so a per-stream PRISM claim
   // would be an invention.
-  batcher: { address: string; volumeUsd: number; feesUsd: number; deliveredEth: number; batches: number } | null;
+  batcher: { address: string; volumeUsd: number; feesUsd: number; deliveredEth: number; divertedUsd?: number; batches: number } | null;
+  // captured burn money that could not enter the ETH-only path (ERC20-sell
+  // wrapper fees, batcher diverts) — parked at the fallback awaiting the
+  // operator sweep. Counted as its own stage, never inside a crankable total.
+  fallback?: { address: string; totalUsd: number; unpriced: number; assets: { chain: string; address: string; symbol: string; amount: number; usd: number | null }[] } | null;
 }
 
 const CHAIN_HEX: Record<string, string> = { ethereum: "0x1", base: "0x2105", robinhood: "0x1237" };
@@ -302,6 +306,29 @@ export function BurnBoard() {
               caustic
             />
           </div>
+          {/* captured fees that could not enter the ETH-only path: real burn
+              money, honestly counted as its OWN stage — parked at the fallback
+              until the operator sweep converts it, never claimed crankable */}
+          {data.fallback && data.fallback.assets.length > 0 && (
+            <p
+              className="relative mt-3 text-[11px] leading-relaxed text-slate-500"
+              title={data.fallback.assets
+                .map((a) => `${a.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${a.symbol} (${CHAIN_LABEL[a.chain] ?? a.chain})${a.usd != null ? ` ≈ ${fmtUsdFull(a.usd)}` : " · unpriced"}`)
+                .join(" · ")}
+            >
+              <span className="font-semibold" style={{ color: `${C.orange}cc` }}>
+                + {fmtUsdFull(data.fallback.totalUsd)}
+              </span>{" "}
+              more captured for the burn sits at the fallback in sell assets (
+              {data.fallback.assets
+                .slice(0, 3)
+                .map((a) => a.symbol)
+                .join(", ")}
+              {data.fallback.assets.length > 3 ? "…" : ""}
+              ) · awaiting the operator sweep before it can enter the pot
+              {data.fallback.unpriced > 0 ? ` · ${data.fallback.unpriced} asset${data.fallback.unpriced === 1 ? "" : "s"} unpriced` : ""}
+            </p>
+          )}
         </div>
       )}
 
@@ -624,12 +651,18 @@ function BurnStreams({ batcher }: { batcher: Pipeline["batcher"] }) {
       volume: batcher ? fmtUsdFull(batcher.volumeUsd) : dash,
       // measured only: ETH its events delivered toward the burn. The pot is
       // fungible, so no per-stream PRISM number exists to state honestly.
-      stat2Label: "sent to the burn",
-      stat2: batcher ? `Ξ${fmtEth(batcher.deliveredEth)}` : dash,
+      stat2Label: batcher && (batcher.divertedUsd ?? 0) > 0 && batcher.deliveredEth === 0 ? "captured for the burn" : "sent to the burn",
+      stat2: batcher
+        ? (batcher.divertedUsd ?? 0) > 0 && batcher.deliveredEth === 0
+          ? `${fmtUsdFull(batcher.divertedUsd ?? 0)} at the fallback`
+          : `Ξ${fmtEth(batcher.deliveredEth)}`
+        : dash,
       note: batcher
-        ? batcher.batches > 0
-          ? "Every batched buy pays its fee on the way in; the whole fee is sent toward the burner, where it buys PRISM and dies."
-          : "The production batchers are live on all three chains (the 2026-08-16 ceremony). These figures count up from the first real batch."
+        ? (batcher.divertedUsd ?? 0) > 0 && batcher.deliveredEth === 0
+          ? "Every batched buy pays its fee on the way in. The burn shares so far DIVERTED to the fallback (the burn swap did not run) — captured for the burn, awaiting the operator sweep."
+          : batcher.batches > 0
+            ? "Every batched buy pays its fee on the way in; the whole fee is sent toward the burner, where it buys PRISM and dies."
+            : "The production batchers are live on all three chains (the 2026-08-16 ceremony). These figures count up from the first real batch."
         : "Built and audited, waiting on its deploy ceremony. Nothing is shown before it is real.",
     },
   ];
