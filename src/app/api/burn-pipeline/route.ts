@@ -5,6 +5,7 @@ import { listIndexes } from "@/lib/spectrum/index-data";
 import { ARB_SYS, BURN_FALLBACK_SINK, DEAD, L1_PRISM_BURNER, PORTFOLIO_BATCHER_PROD, PORTFOLIO_BATCHER_WATCH, PORTFOLIO_COLLECTOR_WATCH, PRISM, SPECTRUM_LEGACY_FACTORIES, SPECTRUM_V2, SPECTRUM_V3_FACTORIES, STABLE_BY_CHAIN, TOPIC_ARB, TOPIC_BATCH, TOPIC_COLLECTOR, TOPIC_WRAPPER, WRAPPER_WATCH } from "@/lib/chain/constants";
 import { confirmedSendCount, isSpent } from "@/lib/chain/orbit";
 import { fetchDexPrices } from "@/lib/spectrum/index-data";
+import { priceWrappedSwap } from "@/lib/chain/wrapper-price";
 
 // ── The burn pipeline, read side ─────────────────────────────────────────────
 // the designer's ruling (2026-08-02, via SpectrumContracts' desk map): nothing in the
@@ -510,6 +511,11 @@ async function build() {
   // Balances are live; prices are the chain's stable at par or DexScreener
   // spot, clearly best-effort (unpriced assets are counted by name, not $0).
   let fallback: { address: string; totalUsd: number; unpriced: number; assets: { chain: string; address: string; symbol: string; amount: number; usd: number | null }[] } | null = null;
+  // the wrapper's ALL-TIME measured totals (from the same scans the fallback
+  // discovery walks — full history from each wrapper's deploy floor), priced
+  // by the shared helper so the feed and this figure can never drift. Feeds
+  // the berth + the deck's Portfolio all-time rung alongside the batcher.
+  const wrapperTotals = { volumeUsd: 0, feesUsd: 0, unpricedSwaps: 0 };
   try {
     const assets: { chain: string; address: string; symbol: string; amount: number; usd: number | null }[] = [];
     for (const chain of ["ethereum", "base", "robinhood"] as const) {
@@ -523,14 +529,33 @@ async function build() {
       const w = WRAPPER_WATCH[chain];
       const logs = await scanLogs(p, `wrapfb-${chain}`, w.addresses, [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]], w.fromBlock, chain === "robinhood" ? 2_000_000 : 100_000);
       const fbTx = new Set<string>();
+      const feeRawByTx = new Map<string, number>();
+      const burnRawByTx = new Map<string, number>();
       for (const l of logs) {
-        const sink = l.topics[0] === TOPIC_WRAPPER.feeChargedWhole ? `0x${(l.topics[1] ?? "").slice(26)}` : l.topics[0] === TOPIC_WRAPPER.feeCharged ? `0x${(l.topics[2] ?? "").slice(26)}` : "";
-        if (sink.toLowerCase() === BURN_FALLBACK_SINK.toLowerCase()) fbTx.add(l.txHash);
+        if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
+          const cut = Number(BigInt(l.data.slice(0, 66)));
+          feeRawByTx.set(l.txHash, (feeRawByTx.get(l.txHash) ?? 0) + cut);
+          burnRawByTx.set(l.txHash, (burnRawByTx.get(l.txHash) ?? 0) + cut);
+          if (`0x${(l.topics[1] ?? "").slice(26)}`.toLowerCase() === BURN_FALLBACK_SINK.toLowerCase()) fbTx.add(l.txHash);
+        } else if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
+          const cut0 = Number(BigInt(l.data.slice(0, 66)));
+          const cut1 = Number(BigInt(`0x${l.data.slice(66, 130)}`));
+          feeRawByTx.set(l.txHash, (feeRawByTx.get(l.txHash) ?? 0) + cut0 + cut1);
+          burnRawByTx.set(l.txHash, (burnRawByTx.get(l.txHash) ?? 0) + cut1);
+          if (`0x${(l.topics[2] ?? "").slice(26)}`.toLowerCase() === BURN_FALLBACK_SINK.toLowerCase()) fbTx.add(l.txHash);
+        }
       }
       for (const l of logs) {
-        if (l.topics[0] !== TOPIC_WRAPPER.directSwap || !fbTx.has(l.txHash)) continue;
+        if (l.topics[0] !== TOPIC_WRAPPER.directSwap) continue;
         const sell = `0x${(l.topics[2] ?? "").slice(26)}`.toLowerCase();
-        if (sell !== `0x${"0".repeat(40)}`) discovered.set(sell, true);
+        const buy = `0x${(l.topics[3] ?? "").slice(26)}`.toLowerCase();
+        if (fbTx.has(l.txHash) && sell !== `0x${"0".repeat(40)}`) discovered.set(sell, true);
+        const priced = priceWrappedSwap(chain, sell, buy, Number(BigInt(l.data.slice(0, 66))), Number(BigInt(`0x${l.data.slice(66, 130)}`)), feeRawByTx.get(l.txHash), burnRawByTx.get(l.txHash));
+        const volUsd = priced.tradeUsd ?? (priced.tradeEth != null ? priced.tradeEth * ethUsd : null);
+        const feeUsd = priced.feeUsd ?? (priced.eth != null ? priced.eth * ethUsd : null);
+        if (volUsd != null) wrapperTotals.volumeUsd += volUsd;
+        if (feeUsd != null) wrapperTotals.feesUsd += feeUsd;
+        if (volUsd == null && feeUsd == null) wrapperTotals.unpricedSwaps += 1;
       }
       const held: { address: string; amount: number; symbol: string }[] = [];
       for (const a of discovered.keys()) {
@@ -600,6 +625,9 @@ async function build() {
     // addresses landed via SpectrumContracts' desk drop, per the standing
     // order, and were re-verified here before wiring).
     batcher,
+    // the wrapper lane's all-time measured totals (every generation, every
+    // chain) — the other half of the portfolio system beside the batcher
+    wrapper: wrapperTotals,
     // captured burn money parked at the fallback (sell assets / diverted
     // funding) — its own honest stage, never inside a crankable total
     fallback,

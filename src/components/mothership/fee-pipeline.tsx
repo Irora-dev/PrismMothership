@@ -100,7 +100,8 @@ interface Pipeline {
   // the bridge collectors: the batcher's burn cut, one permissionless flush()
   // from the L1 burner (stage two of three)
   collectors?: PendingCollector[];
-  batcher: null | { address?: string; volumeUsd?: number; feesUsd?: number; deliveredEth?: number; batches?: number };
+  batcher: null | { address?: string; volumeUsd?: number; feesUsd?: number; deliveredEth?: number; divertedUsd?: number; batches?: number };
+  wrapper?: { volumeUsd?: number; feesUsd?: number };
 }
 
 
@@ -321,7 +322,9 @@ export function FeePipeline({ stats, events, sessionBurned = 0 }: { stats: Pulse
       ladder: [
         { label: "1h", value: pipe?.batcher ? fmtUsdFull(rt.h.portfolioUsd) : "—" },
         { label: "24h", value: pipe?.batcher ? fmtUsdFull(rt.d.portfolioUsd) : "—" },
-        { label: "all", value: "—" },
+        // all-time = measured batch fees + measured wrapper fees off the
+        // pipeline payload (full history from the deploy floors)
+        { label: "all", value: pipe?.batcher ? fmtUsdFull((pipe.batcher.feesUsd ?? 0) + (pipe.wrapper?.feesUsd ?? 0)) : "—" },
       ],
       tip: pipe?.batcher
         ? "Spectrum Portfolio · batched buys + wrapped swaps, live since the gen-3 ceremony. The whole fee burns PRISM."

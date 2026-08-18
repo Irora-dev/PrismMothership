@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.18.45",
-  "note": "Captured burn money that cannot enter the ETH-only pipeline now counts, honestly: fees charged in sell assets and batch burn shares whose swap did not run park at the fallback sink, and the burn page's journey now shows that figure - live balances of event-discovered assets only (the wallet also holds impersonator tokens, which can never appear), priced at par for stables and at spot otherwise. A batch whose burn share diverted says so everywhere: the feed event, the detail popup, the money map's split (the share flies the burn lane, labeled as parked), and the portfolio stream card. Wrapped-swap and batch events also stopped being evictable by the pool-fee flood in the feed buffer.",
+  "version": "2026.08.18.46",
+  "note": "Spectrum Portfolio flips to Live across the site - the app-store card, the ecosystem berth and the command deck all say so and carry measured figures: all-time batch and wrapped-swap volume and fees, summed from the contracts' own events across every generation and chain. The portfolio berth's dashes become real dollars, and the deck's Portfolio card gains its all-time rung. The public changelog catches up with the last two days of releases.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

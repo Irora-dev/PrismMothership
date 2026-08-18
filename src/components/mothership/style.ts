@@ -84,10 +84,18 @@ export const APPS: MothershipApp[] = [
   {
     name: "Spectrum Portfolio",
     tagline: "A whole portfolio in one buy",
+    // LIVE since 2026-08-18 (the designer's flip call): the gen-3 batchers and
+    // wrappers are on-chain on all three chains, and the first real batch and
+    // wrapped swaps have executed through them — facts, not marketing.
     blurb:
-      "Batched execution across baskets and tokens in a single transaction, with a flat fee that buys and burns PRISM. Built and audited. Launching soon.",
+      "Batched execution across baskets and tokens in a single transaction, with a flat fee that buys and burns PRISM. Live on Ethereum, Base and Robinhood Chain.",
     color: C.orange,
-    status: "Launching soon",
+    status: "Live",
+    href: "/spectrum#portfolio",
+    actions: [
+      { label: "Launchpad", href: "https://spectrumindexes.xyz", external: true },
+      { label: "Activity", href: "/spectrum#portfolio" },
+    ],
   },
 ];
 

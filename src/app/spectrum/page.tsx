@@ -15,6 +15,7 @@ import { ChainPills, ALL_CHAINS } from "@/components/spectrum/chain-pills";
 import type { Chain } from "@/components/spectrum/index-card";
 import { BurnProximitySection } from "@/components/spectrum/burn-proximity";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { usePolledJson } from "@/hooks/usePolledJson";
 import { RANGES, isRangeKey, type ActivityEvent, type RangeKey } from "@/lib/feed/types";
 import type { SpectrumChartsPayload } from "@/lib/spectrum/spectrum-charts";
 
@@ -59,6 +60,14 @@ export default function SpectrumPage() {
     return isRangeKey(q) ? q : "24h";
   });
   const [data, setData] = useState<SpectrumChartsPayload | null>(null);
+  // the portfolio berth's live figures: batches + wrapped swaps, all-time,
+  // measured off the pipeline route (LIVE since the 2026-08-18 flip)
+  const { data: pipe } = usePolledJson<{
+    batcher?: { volumeUsd: number; feesUsd: number } | null;
+    wrapper?: { volumeUsd: number; feesUsd: number };
+  }>("/api/burn-pipeline", 300_000);
+  const portfolioVolUsd = pipe ? (pipe.batcher?.volumeUsd ?? 0) + (pipe.wrapper?.volumeUsd ?? 0) : null;
+  const portfolioFeesUsd = pipe ? (pipe.batcher?.feesUsd ?? 0) + (pipe.wrapper?.feesUsd ?? 0) : null;
   const [loading, setLoading] = useState(true);
   // Fees-earned card view: every basket's full fee, or only PRISM's fixed 25%.
   const [feesView, setFeesView] = useState<"total" | "prism">("total");
@@ -355,7 +364,9 @@ export default function SpectrumPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-2xl font-bold tracking-tight text-white">Spectrum Portfolio</h2>
-                  <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: "#FF5E0026", color: "#FF5E00", border: "1px solid #FF5E0040" }}>Launching soon</span>
+                  {/* LIVE since 2026-08-18: the gen-3 batchers + wrappers are
+                      on-chain on all three chains, first real flows executed */}
+                  <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: "#00FF8726", color: "#00FF87", border: "1px solid #00FF8740" }}>Live</span>
                 </div>
                 <p className="mt-1.5 max-w-[560px] text-sm leading-relaxed text-slate-400">
                   A whole portfolio in one buy: batched execution across baskets and tokens, with a flat fee that buys and burns PRISM.
@@ -365,11 +376,15 @@ export default function SpectrumPage() {
             <div className="grid shrink-0 grid-cols-2 gap-6 text-right">
               <div>
                 <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Portfolio volume</div>
-                <div className="mt-1 text-2xl font-light text-slate-600" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>—</div>
+                <div className="mt-1 text-2xl font-light tabular-nums" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', color: portfolioVolUsd != null && portfolioVolUsd > 0 ? "#fff" : "#475569" }}>
+                  {portfolioVolUsd != null ? `$${Math.round(portfolioVolUsd).toLocaleString("en-US")}` : "—"}
+                </div>
               </div>
               <div>
                 <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Portfolio fees</div>
-                <div className="mt-1 text-2xl font-light text-slate-600" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>—</div>
+                <div className="mt-1 text-2xl font-light tabular-nums" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', color: portfolioFeesUsd != null && portfolioFeesUsd > 0 ? "#fff" : "#475569" }}>
+                  {portfolioFeesUsd != null ? `$${portfolioFeesUsd.toFixed(2)}` : "—"}
+                </div>
               </div>
           </div>
         </div>

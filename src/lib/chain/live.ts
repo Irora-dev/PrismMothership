@@ -9,6 +9,7 @@ import {
 } from "ethers";
 import type { ActivityEvent, Chain, PulseStats } from "../feed/types";
 import { listIndexes } from "../spectrum/index-data";
+import { priceWrappedSwap } from "./wrapper-price";
 import {
   DEAD,
   PRISM,
@@ -533,35 +534,19 @@ function decodeWrapperEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number
       /* skip malformed */
     }
   }
-  const stable = STABLE_BY_CHAIN[chain as keyof typeof STABLE_BY_CHAIN];
   const out: ActivityEvent[] = [];
   for (const l of logs) {
     if (l.topics[0] !== TOPIC_WRAPPER.directSwap) continue;
     try {
       const sellToken = `0x${l.topics[2].slice(26)}`.toLowerCase();
       const buyToken = `0x${l.topics[3].slice(26)}`.toLowerCase();
-      const native = sellToken === ZERO.toLowerCase();
       const d = abi.decode(["uint256", "uint256", "uint256"], l.data); // (spent, bought, refunded)
-      const spentRaw = Number(d[0] as bigint);
-      const boughtRaw = Number(d[1] as bigint);
       const feeRaw = feeByTx.get(l.transactionHash);
       const burnRaw = burnByTx.get(l.transactionHash);
       const wholeFeeBurn = wholeByTx.get(l.transactionHash) ?? (feeRaw != null && burnRaw != null && feeRaw > 0 && burnRaw >= feeRaw);
       const parkedAtFallback = (sinkByTx.get(l.transactionHash) ?? "").toLowerCase() === BURN_FALLBACK_SINK.toLowerCase();
-
-      let amounts: Partial<ActivityEvent> = {};
-      if (native) {
-        amounts = { tradeEth: spentRaw / 1e18, eth: feeRaw != null ? feeRaw / 1e18 : undefined, burnEth: burnRaw != null ? burnRaw / 1e18 : undefined };
-      } else if (stable && sellToken === stable.address.toLowerCase()) {
-        const unit = 10 ** stable.decimals;
-        amounts = { tradeUsd: spentRaw / unit, usd: spentRaw / unit, feeUsd: feeRaw != null ? feeRaw / unit : undefined, burnUsd: burnRaw != null ? burnRaw / unit : undefined };
-      } else if (stable && buyToken === stable.address.toLowerCase() && feeRaw != null && spentRaw > feeRaw) {
-        // the transaction's own executed rate: proceeds ÷ tokens the router
-        // actually swapped (spent minus the fee taken before the swap)
-        const proceedsUsd = boughtRaw / 10 ** stable.decimals;
-        const rate = proceedsUsd / (spentRaw - feeRaw);
-        amounts = { tradeUsd: spentRaw * rate, usd: spentRaw * rate, feeUsd: feeRaw * rate, burnUsd: burnRaw != null ? burnRaw * rate : undefined };
-      }
+      // ONE shared pricing implementation with the burn-pipeline totals
+      const amounts: Partial<ActivityEvent> = priceWrappedSwap(chain as "ethereum" | "base" | "robinhood", sellToken, buyToken, Number(d[0] as bigint), Number(d[1] as bigint), feeRaw, burnRaw);
 
       out.push({
         id: `${l.transactionHash}:${l.index}`,
