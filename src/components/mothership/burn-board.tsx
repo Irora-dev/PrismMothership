@@ -291,7 +291,7 @@ export function BurnBoard() {
               figure={`Ξ${fmtEth((data.withdrawals ?? []).filter((w) => w.status !== "landed").reduce((a, w) => a + w.amountEth, 0))}`}
               sub={(() => {
                 const ready = (data.withdrawals ?? []).filter((w) => w.status === "executable").length;
-                return ready > 0 ? `${ready} at the gate · READY TO FINALIZE` : "~7-day windows, then a finalize crank";
+                return ready > 0 ? `${ready} at the gate · READY TO FINALIZE` : "~7d on Robinhood · ~1d on Base · then finalize cranks";
               })()}
               color="#FACC15"
             />
@@ -439,7 +439,7 @@ export function BurnBoard() {
               <CollectorRoad chain="robinhood" data={data} onFlush={setBurnCrank} onFinalize={setFinalizeCrank} />
             </Road>
 
-            <Road title="Base" tag="three cranks · finalize ≈600k gas, two txs" dot="#0052FF">
+            <Road title="Base" tag="four cranks · prove ≈421k + finalize ≈305k gas" dot="#0052FF">
               <CollectorRoad chain="base" data={data} onFlush={setBurnCrank} onFinalize={setFinalizeCrank} />
             </Road>
           </div>
@@ -900,7 +900,7 @@ function CollectorRoad({ chain, data, onFlush, onFinalize }: { chain: "base" | "
               <div className="text-2xl font-light tabular-nums text-white" style={{ fontFamily: MONO, ...(executable.length ? glow(C.red) : {}) }}>
                 Ξ{fmtEth(total)} <span className="text-[11px] text-slate-500">· {sailing.length} crossing{sailing.length === 1 ? "" : "s"}</span>
               </div>
-              {executable.length > 0 && chain === "robinhood" ? (
+              {executable.length > 0 ? (
                 <>
                   {/* one press, one tx: the oldest crossing at the gate first */}
                   <button
@@ -908,17 +908,15 @@ function CollectorRoad({ chain, data, onFlush, onFinalize }: { chain: "base" | "
                     className="mt-3 w-full rounded-lg py-2 text-xs font-bold transition-all hover:brightness-110"
                     style={{ background: "linear-gradient(90deg, #FACC15cc, #FF5E00cc)", color: "#181000", boxShadow: "0 0 12px rgba(250,204,21,0.35)" }}
                   >
-                    Finalize on L1 · Ξ{fmtEth(executable[0].amountEth)}
+                    Crank the crossing · Ξ{fmtEth(executable[0].amountEth)}
                   </button>
                   {executable.length > 1 && (
-                    <p className="mt-1.5 text-center text-[10px] text-slate-500">{executable.length} at the gate · oldest first, one tx each</p>
+                    <p className="mt-1.5 text-center text-[10px] text-slate-500">{executable.length} at the gate · oldest first</p>
                   )}
                 </>
               ) : (
                 <p className="mt-1.5 text-[11px] text-slate-500">
-                  {executable.length > 0
-                    ? `${executable.length} READY TO FINALIZE · a two-tx OP-Stack claim, not one-click yet`
-                    : `next finalize ~${new Date(nextTs).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · tracked on the convoy`}
+                  {`next finalize ~${new Date(nextTs).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · tracked on the convoy`}
                 </p>
               )}
             </>
@@ -1053,7 +1051,7 @@ function BridgeConvoy({ withdrawals, ethUsd, onFinalize }: { withdrawals: Withdr
                   const first = cl.items.reduce((a, d) => (d.w.unlockTs < a.w.unlockTs ? d : a));
                   const col = anyReady ? C.red : r.color;
                   const readyOldest = cl.items.filter((d) => d.ready).sort((a, b) => a.w.ts - b.w.ts)[0]?.w ?? null;
-                  const oneClick = chain === "robinhood"; // Base's claim is a two-tx OP-Stack flow, not one-click yet
+                  const oneClick = true; // both settlement families have their crank modal now (Base = prove → 24h → finalize, built 2026-08-18)
                   const line2 = anyReady
                     ? oneClick
                       ? "READY TO FINALIZE · crank it →"

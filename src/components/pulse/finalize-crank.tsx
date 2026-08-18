@@ -24,9 +24,13 @@ export interface FinalizeTarget {
 }
 
 type Preflight =
-  | { status: "waiting"; position: number; confirmedSize: number; amountEth: number; destination: string }
-  | { status: "ready"; to: string; data: string; position: number; confirmedSize: number; amountEth: number; destination: string; proofDepth: number }
-  | { status: "spent"; position: number; confirmedSize: number; amountEth: number; destination: string };
+  // Robinhood (Arbitrum) shapes carry position/confirmedSize; Base (OP-Stack)
+  // shapes carry withdrawalHash and may be a two-step prove→maturing→ready
+  | { status: "waiting"; position?: number; confirmedSize?: number; amountEth: number; destination?: string; note?: string }
+  | { status: "prove"; to: string; data: string; amountEth: number; gameIndex?: number }
+  | { status: "maturing"; amountEth: number; provenAt: number; maturesAt: number }
+  | { status: "ready"; to: string; data: string; position?: number; confirmedSize?: number; amountEth: number; destination?: string; proofDepth?: number; proofSubmitter?: string }
+  | { status: "spent"; position?: number; confirmedSize?: number; amountEth: number; destination?: string };
 
 type Phase =
   | { k: "read" }
@@ -58,7 +62,7 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
   const preflight = useCallback(async () => {
     setPhase({ k: "read" });
     try {
-      const r = await fetch(`/api/burn-pipeline/finalize?tx=${target.txHash}`);
+      const r = await fetch(`/api/burn-pipeline/finalize?tx=${target.txHash}&chain=${encodeURIComponent(target.chain)}`);
       const d = (await r.json()) as Preflight | { error: string };
       if (!r.ok || !("status" in d)) throw new Error("error" in d ? d.error : `HTTP ${r.status}`);
       setPhase({ k: "idle", pre: d });
@@ -71,7 +75,7 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
   }, [preflight]);
 
   const crank = async () => {
-    if (phase.k !== "idle" || phase.pre.status !== "ready") return;
+    if (phase.k !== "idle" || (phase.pre.status !== "ready" && phase.pre.status !== "prove")) return;
     const pre = phase.pre;
     if (!wallet || !account) {
       openPicker();
@@ -96,10 +100,18 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
       const tx = await signer.sendTransaction({ to: pre.to, data: pre.data });
       setPhase({ k: "mining", pre });
       const receipt = await tx.wait();
+      if (pre.status === "prove") {
+        // the PROVE step of the Base two-step: no ETH moved yet — the 24h
+        // maturity clock starts. Re-preflight to show the honest maturing state.
+        onDone?.();
+        await preflight();
+        return;
+      }
       // the celebration states what the chain says was delivered, nothing estimated
       let deliveredEth: number | null = null;
+      const dest = "destination" in pre ? pre.destination : undefined;
       for (const log of receipt?.logs ?? []) {
-        if (log.address.toLowerCase() !== pre.destination.toLowerCase()) continue;
+        if (dest && log.address.toLowerCase() !== dest.toLowerCase()) continue;
         try {
           const parsed = RECEIVED_EVENT.parseLog({ topics: [...log.topics], data: log.data });
           if (parsed?.name === "Received") deliveredEth = Number(parsed.args.amount) / 1e18;
@@ -121,20 +133,29 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
 
   const pre = "pre" in phase ? phase.pre : null;
   const busy = phase.k === "sim" || phase.k === "wallet" || phase.k === "mining";
+  const isBase = target.chain === "base";
   const stages: { label: string; state: "done" | "here" | "next" }[] =
     phase.k === "celebrate" || pre?.status === "spent"
       ? [
           { label: "flush() opened the withdrawal", state: "done" },
-          { label: "Ethereum confirmed the crossing", state: "done" },
+          { label: isBase ? "Proven against the output root" : "Ethereum confirmed the crossing", state: "done" },
           { label: "L1 finalization delivered it to the pot", state: "done" },
           { label: "The burner buys & burns PRISM", state: "here" },
         ]
-      : [
-          { label: "flush() opened the withdrawal", state: "done" },
-          { label: "Ethereum confirms the crossing", state: pre?.status === "ready" ? "done" : "here" },
-          { label: "L1 finalization · executeTransaction, anyone", state: pre?.status === "ready" ? "here" : "next" },
-          { label: "The burner buys & burns PRISM", state: "next" },
-        ];
+      : isBase
+        ? [
+            { label: "flush() opened the withdrawal", state: "done" },
+            { label: "Prove it on L1 · a Merkle proof, anyone", state: pre?.status === "prove" ? "here" : pre?.status === "waiting" ? "next" : "done" },
+            { label: "The 24h proof maturity runs", state: pre?.status === "maturing" ? "here" : pre?.status === "ready" ? "done" : "next" },
+            { label: "Finalize on L1 · delivers to the pot, anyone", state: pre?.status === "ready" ? "here" : "next" },
+            { label: "The burner buys & burns PRISM", state: "next" },
+          ]
+        : [
+            { label: "flush() opened the withdrawal", state: "done" },
+            { label: "Ethereum confirms the crossing", state: pre?.status === "ready" ? "done" : "here" },
+            { label: "L1 finalization · executeTransaction, anyone", state: pre?.status === "ready" ? "here" : "next" },
+            { label: "The burner buys & burns PRISM", state: "next" },
+          ];
 
   const amount = pre?.amountEth ?? target.amountEth;
 
@@ -263,12 +284,27 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
               ) : pre?.status === "waiting" ? (
                 <>
                   <div className="max-w-xs text-[11px] leading-relaxed text-slate-400">
-                    {Date.now() >= target.unlockTs
-                      ? "The window has run its course; Ethereum just hasn't confirmed the covering assertion yet. Usually a matter of hours. Check back."
-                      : `Ethereum confirms crossings after a ~7-day dispute window. This one is expected ~${new Date(target.unlockTs).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`}
+                    {isBase
+                      ? (pre.note ?? "No output root covers this withdrawal yet. Games post every ~30 minutes; check back shortly.")
+                      : Date.now() >= target.unlockTs
+                        ? "The window has run its course; Ethereum just hasn't confirmed the covering assertion yet. Usually a matter of hours. Check back."
+                        : `Ethereum confirms crossings after a ~7-day dispute window. This one is expected ~${new Date(target.unlockTs).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`}
                   </div>
-                  <div className="text-[10px] tabular-nums text-slate-600" style={{ fontFamily: "ui-monospace, monospace" }}>
-                    withdrawal #{pre.position} · confirmed through #{Math.max(0, pre.confirmedSize - 1)}
+                  {pre.position != null && pre.confirmedSize != null && (
+                    <div className="text-[10px] tabular-nums text-slate-600" style={{ fontFamily: "ui-monospace, monospace" }}>
+                      withdrawal #{pre.position} · confirmed through #{Math.max(0, pre.confirmedSize - 1)}
+                    </div>
+                  )}
+                  <button type="button" onClick={() => void preflight()} className="mt-1 rounded-full border border-white/15 px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white hover:border-white/35">
+                    Check the gate again
+                  </button>
+                </>
+              ) : pre?.status === "maturing" ? (
+                <>
+                  <div className="max-w-xs text-[11px] leading-relaxed text-slate-400">
+                    {pre.maturesAt > Date.now()
+                      ? `Proven. The portal's 24-hour proof maturity runs; the finalize crank opens ~${new Date(pre.maturesAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`
+                      : "Proven and matured — the output-root game is still settling on L1. The finalize crank opens the moment the portal accepts it; check back."}
                   </div>
                   <button type="button" onClick={() => void preflight()} className="mt-1 rounded-full border border-white/15 px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white hover:border-white/35">
                     Check the gate again
@@ -288,14 +324,20 @@ export function FinalizeCrankModal({ target, ethUsd = 0, onClose, onDone }: { ta
                       : phase.k === "wallet"
                         ? "Confirm in your wallet…"
                         : phase.k === "mining"
-                          ? "Finalizing on L1…"
+                          ? pre?.status === "prove"
+                            ? "Proving on L1…"
+                            : "Finalizing on L1…"
                           : !account
-                            ? `Connect & finalize · Ξ${fmtEth(amount)}`
-                            : `Finalize on L1 · deliver Ξ${fmtEth(amount)}`}
+                            ? `Connect & ${pre?.status === "prove" ? "prove" : "finalize"} · Ξ${fmtEth(amount)}`
+                            : pre?.status === "prove"
+                              ? `Prove on L1 · start the 24h clock`
+                              : `Finalize on L1 · deliver Ξ${fmtEth(amount)}`}
                   </button>
                   {phase.k === "error" && <div className="max-w-xs text-center text-[11px] text-red-300/90">{phase.msg}</div>}
                   <div className="max-w-xs text-[10px] leading-relaxed text-slate-500">
-                    executeTransaction is permissionless: you pay the gas, the bridge delivers the ETH to the burner pot, the board credits you.
+                    {pre?.status === "prove"
+                      ? "Proving is permissionless: a Merkle proof of the withdrawal against Base's posted output root. You pay the gas; finalize opens 24 hours later."
+                      : "Finalization is permissionless: you pay the gas, the bridge delivers the ETH to the burner pot, the board credits you."}
                   </div>
                 </>
               )}

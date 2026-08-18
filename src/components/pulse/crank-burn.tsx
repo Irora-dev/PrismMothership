@@ -202,8 +202,10 @@ export function PendingBurnModal({
   // crank, and only then can the burner's flush actually kill PRISM.
   const stages: { label: string; state: "done" | "here" | "next" }[] = [
     { label: "Burn cut delivered to the collector", state: "done" },
-    { label: "flush() opens the ~7-day withdrawal", state: "here" },
-    { label: "L1 finalization · its own crank, after the window", state: "next" },
+    // measured windows: 4663 runs the classic ~7-day dispute window; Base
+    // settles via 24h proof maturity (re-measured off the portal 2026-08-18)
+    { label: collector.chain === "base" ? "flush() opens the ~1-day withdrawal" : "flush() opens the ~7-day withdrawal", state: "here" },
+    { label: collector.chain === "base" ? "Prove, mature 24h, finalize · own cranks" : "L1 finalization · its own crank, after the window", state: "next" },
     { label: "The burner buys & burns PRISM", state: "next" },
   ];
 

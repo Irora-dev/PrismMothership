@@ -828,11 +828,16 @@ async function gateNumbers() {
   // two chains that have no baskets, so assert the one that does.
   if (QUICK) return;
   try {
-    const d = await withRetry(() => botSay("/token CASHCAT", GROUP, "spectrum"), "/token CASHCAT");
+    // by ADDRESS, not ticker: a Base token also named CASHCAT out-liquidity'd
+    // the hood one on 2026-08-18 and the bot's highest-liquidity ticker
+    // resolution correctly picked it — the check's job is "the bot resolves
+    // hood-chain data", and an address is unambiguous forever (the same
+    // hardening the bot itself shipped for /propose in July).
+    const d = await withRetry(() => botSay("/token 0x020bfC650A365f8BB26819deAAbF3E21291018b4", GROUP, "spectrum"), "/token <hood CASHCAT addr>");
     const t = String(d.reply?.text || "");
-    if (/Couldn't find/i.test(t)) fail("robinhood token resolves", "CASHCAT is a live Robinhood token and the bot said it could not find it");
+    if (/Couldn't find/i.test(t)) fail("robinhood token resolves", "the hood CASHCAT address is live and the bot said it could not find it");
     else if (!/robinhood/i.test(t)) fail("robinhood token resolves", `resolved, but not to Robinhood: "${t.slice(0, 110).replace(/\n/g, " ")}"`);
-    else ok("robinhood token resolves · the chain every live basket is on");
+    else ok("robinhood token resolves · by address, the unambiguous form");
   } catch (e) {
     fail("robinhood token resolves", String(e.message || e));
   }
@@ -1002,6 +1007,29 @@ async function gateBurnStreams() {
     }
   } catch (e) {
     fail("finalize preflight (ours)", String(e.message || e));
+  }
+  // ── the Base (OP-Stack) half of the preflight — proven byte-identical to
+  // production transactions before wiring (scripts/base-finalize-probe.mjs).
+  // A baked real withdrawal must land in the honest status set with a
+  // coherent shape; a baked no-withdrawal tx must 422 (the decode gate).
+  try {
+    const r = await get("/api/burn-pipeline/finalize?tx=0x5514aedbb144c34e643362b0ad086f0c1a91ef9ff04092cd6d4b59be66e23123&chain=base", 30_000);
+    const d = await r.json();
+    if (!r.ok) fail("finalize preflight (base)", `HTTP ${r.status}`);
+    else if (!["waiting", "prove", "maturing", "ready", "spent"].includes(d.status)) fail("finalize preflight (base)", `unknown status ${d.status}`);
+    else if ((d.status === "prove" || d.status === "ready") && !(typeof d.data === "string" && d.data.startsWith("0x") && d.data.length > 200))
+      fail("finalize preflight (base)", `says ${d.status} but carries no executable calldata`);
+    else if (d.status === "maturing" && typeof d.maturesAt !== "number") fail("finalize preflight (base)", "maturing without maturesAt — the modal's clock line goes blank");
+    else ok(`finalize preflight answers the Base two-step (baked withdrawal → ${d.status}${d.status === "prove" || d.status === "ready" ? `, ${(d.data.length - 2) / 2} calldata bytes` : ""})`);
+  } catch (e) {
+    fail("finalize preflight (base)", String(e.message || e));
+  }
+  try {
+    const r = await get("/api/burn-pipeline/finalize?tx=0x065e0e6941ca3597780b4286ddd259b69f63d23a7bf2fa1858c0d11309552f01&chain=base", 30_000);
+    if (r.status === 422) ok("finalize preflight (base) refuses a transaction with no withdrawal in it");
+    else fail("finalize preflight (base) 422", `expected 422 on a no-withdrawal tx, got ${r.status}`);
+  } catch (e) {
+    fail("finalize preflight (base) 422", String(e.message || e));
   }
   try {
     // pos #1057, a real bare-ETH withdrawal already covered by a confirmed

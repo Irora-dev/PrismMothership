@@ -4,6 +4,7 @@ import { getBaseProvider, getEthUsd, getHoodProvider, getProvider } from "@/lib/
 import { listIndexes } from "@/lib/spectrum/index-data";
 import { ARB_SYS, BURN_FALLBACK_SINK, DEAD, L1_PRISM_BURNER, PORTFOLIO_BATCHER_PROD, PORTFOLIO_BATCHER_WATCH, PORTFOLIO_COLLECTOR_WATCH, PRISM, SPECTRUM_LEGACY_FACTORIES, SPECTRUM_V2, SPECTRUM_V3_FACTORIES, STABLE_BY_CHAIN, TOPIC_ARB, TOPIC_BATCH, TOPIC_COLLECTOR, TOPIC_WRAPPER, WRAPPER_WATCH } from "@/lib/chain/constants";
 import { confirmedSendCount, isSpent } from "@/lib/chain/orbit";
+import { opPreflight, opWithdrawalFromReceipt, type OpWithdrawal } from "@/lib/chain/opstack";
 import { fetchDexPrices } from "@/lib/spectrum/index-data";
 import { priceWrappedSwap } from "@/lib/chain/wrapper-price";
 
@@ -41,13 +42,14 @@ const COLLECTOR_ABI = ["function flushable() view returns (bool)", "function FIN
 // the UI shows progress toward it and never sends a crank that must fail.
 const BASKET_THRESHOLD_ETH = 0.3;
 
-// Measured L1 finalization gas per withdrawal (w-79 brief): Arbitrum Outbox
-// executeTransaction 89,450 + the burner's receive() 1,814; OP-Stack ~600k
-// across prove + finalize. The burner's own crank is a ~200k ETH→PRISM swap.
-const FINALIZE_GAS: Record<string, number> = { robinhood: 91_264, base: 600_000 };
+// Measured L1 finalization gas per withdrawal: Arbitrum Outbox
+// executeTransaction 89,450 + the burner's receive() 1,814 (w-79 brief);
+// OP-Stack re-measured off real receipts 2026-08-18 — prove ~421k + finalize
+// ~305k. The burner's own crank is a ~200k ETH→PRISM swap.
+const FINALIZE_GAS: Record<string, number> = { robinhood: 91_264, base: 726_000 };
 const BURNER_CRANK_GAS = 200_000;
 const FINALIZE_POLICY_PCT = 2; // the tree's amortisation policy: cost ≤ 2% of value
-const WITHDRAWAL_WINDOW_MS = 7 * 86_400_000; // ~7-day dispute window, both L2s
+const WITHDRAWAL_WINDOW_MS = 7 * 86_400_000; // 4663's ~7-day dispute window (Base measures 24h maturity — its rows use the portal's own clock, see the base loop)
 // Event-scan floors (deploy provenance): Base collector deployed at block
 // 49,882,504 (spectrum-contracts/ADDRESSES.md); the 4663 collector passed its
 // read-back 2026-08-12 — 33.0M is ~1 day of margin below that date at 0.1s
@@ -87,6 +89,7 @@ const thresholdCache = new Map<string, number>(); // immutables — read once pe
 const blockTsCache = new Map<string, number>(); // `${key}:${block}` → ms
 const txFromCache = new Map<string, string>();
 const spentCache = new Set<number>(); // Outbox positions confirmed spent — terminal, never re-asked
+const opWCache = new Map<string, OpWithdrawal>(); // Base withdrawal fields by flush tx — immutable once mined
 
 // ── blob persistence for the scans (the charts.ts pattern) ──────────────────
 // The floors are fixed deploy blocks on fast chains, so a memory-only cold
@@ -342,15 +345,37 @@ async function build() {
       const logs = await scanLogs(p, `flush-${c.chain}`, c.address, [TOPIC_COLLECTOR.burnBridgedToL1], COLLECTOR_EVENT_FLOOR[c.chain] ?? 0, COLLECTOR_SCAN_CHUNK[c.chain] ?? 100_000);
       for (const l of logs) {
         const ts = await tsOf(p, c.chain, l.blockNumber);
+        // Base status is the PORTAL's truth, never a wall clock: measured
+        // 2026-08-18, Base runs 24h proof maturity + zero finality delay (the
+        // classic 7-day figure is a different era). "executable" = a crank
+        // (prove or finalize) is available right now; the modal tells which.
+        let status: "window" | "executable" | "landed" = "window";
+        let unlockTs = ts + 26 * 3_600_000; // ETA estimate: ≤30min game + 24h maturity + margin
+        try {
+          let w = opWCache.get(l.txHash);
+          if (!w) {
+            const rec = await p.getTransactionReceipt(l.txHash);
+            w = rec ? (opWithdrawalFromReceipt(rec.logs) ?? undefined) : undefined;
+            if (w) opWCache.set(l.txHash, w);
+          }
+          if (w) {
+            const s = await opPreflight(eth, p, w);
+            if (s.status === "spent") status = "landed";
+            else if (s.status === "prove" || s.status === "ready") status = "executable";
+            else if (s.status === "maturing") unlockTs = s.maturesAt;
+          }
+        } catch {
+          /* a failed classify leaves the honest default: window + the estimate */
+        }
         withdrawals.push({
           chain: c.chain,
           amountEth: Number(formatEther(BigInt(l.data))),
           caller: `0x${l.topics[2]?.slice(26) ?? ""}`,
           txHash: l.txHash,
           ts,
-          unlockTs: ts + WITHDRAWAL_WINDOW_MS,
-          position: null, // OP-Stack rows have no outbox position; wall clock is all we have
-          status: "window",
+          unlockTs,
+          position: null, // OP-Stack rows key on the withdrawal hash, not an outbox position
+          status,
         });
       }
     } catch {
