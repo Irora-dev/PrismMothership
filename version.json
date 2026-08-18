@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.18.47",
-  "note": "The Base bridge gains its crank before it is ever needed: withdrawals from Base now settle through a two-step permissionless flow the site handles end to end - prove the withdrawal against the posted output root, wait the portal's 24-hour proof maturity, then finalize into the burner pot - each step one click from the same crossing popup the Arbitrum path uses. Every mechanic was proven against production before wiring: the site's constructed prove and finalize transactions came out byte-for-byte identical to real successful ones. Base crossing states now come from the portal's own checks instead of a seven-day wall clock that no longer describes the chain, and the measured costs (prove ~421k gas, finalize ~305k) replace the old estimate.",
+  "version": "2026.08.18.48",
+  "note": "A real crossing was invisible and now is not: with two collector generations per chain, the bridge scan cached both under one key, so the second collector's flushes were never read - the first real swept flush on Base did not show on the burn page. Scans now key per contract, and every crossing on both chains rides the convoy again.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

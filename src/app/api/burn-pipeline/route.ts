@@ -99,7 +99,7 @@ const opWCache = new Map<string, OpWithdrawal>(); // Base withdrawal fields by f
 // v2: robinhood withdrawals now come from the ArbSys L2ToL1Tx scan (by
 // destination), not the collector's own event — the old flush-robinhood cache
 // holds the wrong event shape for that key.
-const EV_BLOB_KEY = "burn-events-v2";
+const EV_BLOB_KEY = "burn-events-v3"; // v3: per-address flush keys (the chain-only key collided across collector generations)
 let evHydrated = false;
 let evSavedAt = 0;
 async function evBlobStore() {
@@ -342,7 +342,11 @@ async function build() {
     const p = providerOf(c.chain);
     if (!p) continue;
     try {
-      const logs = await scanLogs(p, `flush-${c.chain}`, c.address, [TOPIC_COLLECTOR.burnBridgedToL1], COLLECTOR_EVENT_FLOOR[c.chain] ?? 0, COLLECTOR_SCAN_CHUNK[c.chain] ?? 100_000);
+      // key includes the ADDRESS: two collector generations share each chain
+      // since the gen-3 ceremony, and a chain-only key made the second scan
+      // start at the first one's cursor — the designer's real 0.03 ETH flush
+      // (2026-08-18 22:19Z) was invisible on /burn because of exactly this
+      const logs = await scanLogs(p, `flush-${c.chain}-${c.address.slice(0, 10)}`, c.address, [TOPIC_COLLECTOR.burnBridgedToL1], COLLECTOR_EVENT_FLOOR[c.chain] ?? 0, COLLECTOR_SCAN_CHUNK[c.chain] ?? 100_000);
       for (const l of logs) {
         const ts = await tsOf(p, c.chain, l.blockNumber);
         // Base status is the PORTAL's truth, never a wall clock: measured
