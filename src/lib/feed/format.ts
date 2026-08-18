@@ -191,8 +191,11 @@ export function headline(e: ActivityEvent, ethUsd = 0): string {
         }
         return `${v} in Spectrum basket revenue`;
       }
-      if (e.source === "wrapper")
+      if (e.source === "wrapper") {
+        // stable-priced swaps carry USD figures; native ones carry ETH
+        if (e.tradeUsd != null) return `${fmtUsdFull(e.tradeUsd)} wrapped swap${e.feeUsd != null ? ` · ${fmtUsdFull(e.feeUsd)} fee` : ""}`;
         return e.tradeEth != null ? `Ξ${fmtEth(e.tradeEth)} wrapped swap${v ? ` · ${v} fee` : ""}` : "A swap through the fee wrapper";
+      }
       return `${v} in LP revenue to PRISM holders`;
     case "launch":
       return `${e.label ?? "A new basket"} launched`;

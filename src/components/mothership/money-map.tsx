@@ -369,7 +369,8 @@ export function MoneyMap() {
   const eventLabel = (e: ActivityEvent) => {
     if (e.kind === "batch") return `${e.usd != null ? fmtUsdFull(e.usd) + " " : ""}portfolio batch`;
     if (e.kind === "launch") return `${e.symbol ? `$${e.symbol}` : "basket"} launch`;
-    if (e.source === "wrapper") return e.tradeEth != null ? `Ξ${fmtEth(e.tradeEth)} wrapped swap` : "wrapped swap";
+    if (e.source === "wrapper")
+      return e.tradeUsd != null ? `${fmtUsd(e.tradeUsd)} wrapped swap` : e.tradeEth != null ? `Ξ${fmtEth(e.tradeEth)} wrapped swap` : "wrapped swap";
     if (e.source === "prism-pool") return `Ξ${fmtEth(e.eth)} swap`;
     if (e.tradeUsd != null) return `${fmtUsdFull(e.tradeUsd)} trade`;
     return "basket fee";
@@ -782,9 +783,13 @@ export function MoneyMap() {
         : ev.kind === "launch"
           ? (ev.eth ?? 0) * ethUsdRef.current
           : ev.kind === "fee"
-            ? ev.source === "prism-pool" || ev.source === "wrapper"
-              ? (ev.eth ?? 0) * ethUsdRef.current
-              : (ev.usd ?? 0)
+            ? ev.source === "wrapper"
+              ? // stable-priced wrapped swaps carry feeUsd directly; native
+                // ones price their ETH fee at spot
+                (ev.feeUsd ?? (ev.eth ?? 0) * ethUsdRef.current)
+              : ev.source === "prism-pool"
+                ? (ev.eth ?? 0) * ethUsdRef.current
+                : (ev.usd ?? 0)
             : ev.kind === "batch"
               ? (ev.feeUsd ?? 0)
               : 0;
@@ -803,11 +808,18 @@ export function MoneyMap() {
           : ev?.source === "wrapper"
             ? feeUsd > 0
               ? (() => {
-                  // MEASURED per event when the feed carries the burn cut
-                  // (gen-3 burns the whole fee; the old build split 7:1) —
-                  // the constant survives only as the old-generation fallback
-                  // for events that predate the measured field
-                  const frac = ev.burnEth != null && ev.eth != null && ev.eth > 0 ? Math.min(1, ev.burnEth / ev.eth) : WRAPPER_BURN_SHARE;
+                  // MEASURED per event when the feed carries the burn cut —
+                  // USD-priced (stable leg) first, then native-priced, then
+                  // the event's own generation flag, and the 7/8 constant
+                  // ONLY for old events that predate every measured field
+                  const frac =
+                    ev.burnUsd != null && ev.feeUsd != null && ev.feeUsd > 0
+                      ? Math.min(1, ev.burnUsd / ev.feeUsd)
+                      : ev.burnEth != null && ev.eth != null && ev.eth > 0
+                        ? Math.min(1, ev.burnEth / ev.eth)
+                        : ev.wholeFeeBurn
+                          ? 1
+                          : WRAPPER_BURN_SHARE;
                   return [
                     { dest: "burn" as DestKey, frac },
                     ...(frac < 1 ? [{ dest: "interfaces" as DestKey, frac: 1 - frac }] : []),

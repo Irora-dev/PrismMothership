@@ -37,8 +37,9 @@ export interface ActivityEvent {
   usd?: number; // optional notional in USD
   feeUsd?: number; // for batch events: the batcher's charged fee (USD)
   legs?: number; // for batch events: assets filled in the batch
-  burnUsd?: number; // for batch events: the fee's burn share actually DELIVERED (BurnShareDelivered, measured)
+  burnUsd?: number; // batch events: the fee's burn share actually DELIVERED (measured); wrapper events: the burn cut priced by a stable leg
   burnEth?: number; // for wrapper events: the fee's burn cut, MEASURED off FeeCharged (the whole fee on gen-3, 7/8 on the old build)
+  wholeFeeBurn?: boolean; // wrapper events: this event's OWN generation burns the whole fee (gen-3) — display truth that survives even when the amounts are unpriced
   actor?: string; // address that earned fees / triggered a swap
   label?: string; // e.g. index name
   symbol?: string; // index ticker (launches)

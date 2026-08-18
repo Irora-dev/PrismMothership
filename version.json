@@ -1,5 +1,5 @@
 {
-  "version": "2026.08.16.43",
-  "note": "Share cards are never shared-cached: the platform edge keyed every card URL to one cache entry regardless of its parameters, so within a cache window any card could serve another card's image. Varying the cache key per query proved unenforceable at the platform layer, so the card route now opts out of shared caching entirely - every card is rendered for the URL that asked.",
+  "version": "2026.08.18.44",
+  "note": "Wrapped swaps price themselves from their own transaction: the fee is charged in the sell asset, so a stable on either leg now prices the swap, the fee and the burn cut at the trade's own executed rate - the first real production sell (an $8,457 swap, $33.83 fee, whole fee captured) rendered as dashes and this fixes that class. The detail popup titles wrapped swaps as themselves instead of hunting for a basket behind them, says when a fee is parked at the fallback sink awaiting the sweep, and never applies the old generation's 7/8 estimate to a whole-fee-burn swap. Wrapped swaps also stopped competing with the pool-fee flood for feed slots, and stable-priced swaps now count in the portfolio volume and fee figures everywhere.",
   "updateManifestUrl": "https://raw.githubusercontent.com/Irora-dev/PrismMothership/main/version.json"
 }

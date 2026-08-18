@@ -44,6 +44,9 @@ import {
   TOPIC_WRAPPER,
   WRAPPER_WATCH,
   USDC_DECIMALS,
+  STABLE_BY_CHAIN,
+  BURN_FALLBACK_SINK,
+  ZERO,
 } from "./constants";
 
 const ERC20_ABI = [
@@ -477,32 +480,71 @@ function decodeWrapperEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number
   // deployed code). Both are MEASURED off the event, so the burn figure is
   // never derived from a share constant, and each event's note tells its own
   // generation's split truthfully.
-  const feeByTx = new Map<string, number>();
+  //
+  // PRICING (reworked 2026-08-18 after the first real gen-3 sell went
+  // dash-everywhere): the fee is charged in the SELL asset, in RAW UNITS.
+  //  · native sell  → ETH-denominated fields, as always.
+  //  · stable on EITHER leg → USD-denominated fields: a stable sell prices
+  //    directly; a stable BUY prices at the transaction's own executed rate
+  //    (proceeds ÷ tokens actually swapped) — the same block, the same trade,
+  //    never an external quote. the designer's 82,029-CASHCAT sell (fee 328.118
+  //    CASHCAT ≈ $33.85 at its own rate) is the case that forced this.
+  //  · no stable leg → honestly unpriced; the event still shows.
+  // An ERC20 fee cannot enter the ETH-only sink, so the wrapper parks it at
+  // the fallback (BURN_FALLBACK_SINK) awaiting the operator sweep — the note
+  // says so rather than implying it is already en route to the burner.
+  const feeByTx = new Map<string, number>(); // RAW sell-asset units
   const burnByTx = new Map<string, number>();
+  const wholeByTx = new Map<string, boolean>();
+  const sinkByTx = new Map<string, string>();
   for (const l of logs) {
     try {
       if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
         const d = abi.decode(["uint256", "uint256"], l.data); // (integratorCut, burnCut)
-        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint) + num(d[1] as bigint));
-        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[1] as bigint));
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + Number(d[0] as bigint) + Number(d[1] as bigint));
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + Number(d[1] as bigint));
+        sinkByTx.set(l.transactionHash, `0x${(l.topics[2] ?? "").slice(26)}`);
       } else if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
         const d = abi.decode(["uint256"], l.data); // (burnCut) — the whole fee
-        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint));
-        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + num(d[0] as bigint));
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + Number(d[0] as bigint));
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + Number(d[0] as bigint));
+        wholeByTx.set(l.transactionHash, true);
+        sinkByTx.set(l.transactionHash, `0x${(l.topics[1] ?? "").slice(26)}`);
       }
     } catch {
       /* skip malformed */
     }
   }
+  const stable = STABLE_BY_CHAIN[chain as keyof typeof STABLE_BY_CHAIN];
   const out: ActivityEvent[] = [];
   for (const l of logs) {
     if (l.topics[0] !== TOPIC_WRAPPER.directSwap) continue;
     try {
-      const native = l.topics[2] === `0x${"0".repeat(64)}`;
+      const sellToken = `0x${l.topics[2].slice(26)}`.toLowerCase();
+      const buyToken = `0x${l.topics[3].slice(26)}`.toLowerCase();
+      const native = sellToken === ZERO.toLowerCase();
       const d = abi.decode(["uint256", "uint256", "uint256"], l.data); // (spent, bought, refunded)
-      const fee = feeByTx.get(l.transactionHash);
-      const burn = burnByTx.get(l.transactionHash);
-      const wholeFeeBurns = fee != null && burn != null && fee > 0 && burn >= fee;
+      const spentRaw = Number(d[0] as bigint);
+      const boughtRaw = Number(d[1] as bigint);
+      const feeRaw = feeByTx.get(l.transactionHash);
+      const burnRaw = burnByTx.get(l.transactionHash);
+      const wholeFeeBurn = wholeByTx.get(l.transactionHash) ?? (feeRaw != null && burnRaw != null && feeRaw > 0 && burnRaw >= feeRaw);
+      const parkedAtFallback = (sinkByTx.get(l.transactionHash) ?? "").toLowerCase() === BURN_FALLBACK_SINK.toLowerCase();
+
+      let amounts: Partial<ActivityEvent> = {};
+      if (native) {
+        amounts = { tradeEth: spentRaw / 1e18, eth: feeRaw != null ? feeRaw / 1e18 : undefined, burnEth: burnRaw != null ? burnRaw / 1e18 : undefined };
+      } else if (stable && sellToken === stable.address.toLowerCase()) {
+        const unit = 10 ** stable.decimals;
+        amounts = { tradeUsd: spentRaw / unit, usd: spentRaw / unit, feeUsd: feeRaw != null ? feeRaw / unit : undefined, burnUsd: burnRaw != null ? burnRaw / unit : undefined };
+      } else if (stable && buyToken === stable.address.toLowerCase() && feeRaw != null && spentRaw > feeRaw) {
+        // the transaction's own executed rate: proceeds ÷ tokens the router
+        // actually swapped (spent minus the fee taken before the swap)
+        const proceedsUsd = boughtRaw / 10 ** stable.decimals;
+        const rate = proceedsUsd / (spentRaw - feeRaw);
+        amounts = { tradeUsd: spentRaw * rate, usd: spentRaw * rate, feeUsd: feeRaw * rate, burnUsd: burnRaw != null ? burnRaw * rate : undefined };
+      }
+
       out.push({
         id: `${l.transactionHash}:${l.index}`,
         kind: "fee" as const,
@@ -512,9 +554,12 @@ function decodeWrapperEvents(logs: Log[], chain: Chain, tsOf: (l: Log) => number
         blockNumber: l.blockNumber,
         txHash: l.transactionHash,
         actor: `0x${l.topics[1].slice(26)}`,
-        ...(native ? { tradeEth: num(d[0] as bigint), eth: fee, burnEth: burn } : {}),
-        note: wholeFeeBurns
-          ? "A swap through the fee wrapper: the whole fee buys & burns PRISM"
+        wholeFeeBurn,
+        ...amounts,
+        note: wholeFeeBurn
+          ? parkedAtFallback
+            ? "A swap through the fee wrapper: the whole fee is captured for the burn — charged in the sell asset and parked at the fallback sink until the sweep converts it"
+            : "A swap through the fee wrapper: the whole fee buys & burns PRISM"
           : "A swap through the fee wrapper: fee/8 to the interface, the rest buys & burns PRISM",
       });
     } catch {
@@ -1656,7 +1701,7 @@ let inflight: Promise<FeedSnap> | null = null;
 // cursor sits AHEAD of any batch already on chain, so without the bump the
 // first batches the designer wants to share would never appear.
 interface FeedBlobSnap {
-  v: 6; // v6: wrapper swaps join the feed (WRAPPER_WATCH, 2026-08-16)
+  v: 7; // v7: wrapper events price by stable legs + carry wholeFeeBurn (2026-08-18); v6: wrapper swaps join the feed
   ethBlock: number;
   baseBlock: number;
   hoodBlock: number;
@@ -1676,7 +1721,7 @@ async function loadFeedSnap(): Promise<void> {
     const k = feedKey();
     if (!k) return; // pre-launch: no per-token key, nothing to restore
     const snap = (await blobs.get(k, { type: "json" })) as FeedBlobSnap | null;
-    if (!snap || snap.v !== 6 || !Array.isArray(snap.events)) return;
+    if (!snap || snap.v !== 7 || !Array.isArray(snap.events)) return;
     feedCache = {
       ethBlock: snap.ethBlock,
       baseBlock: snap.baseBlock,
@@ -1700,7 +1745,7 @@ async function persistFeedSnap(s: FeedSnap): Promise<void> {
     const blobs = await statsBlob();
     if (!blobs) return;
     const snap: FeedBlobSnap = {
-      v: 6,
+      v: 7,
       ethBlock: s.ethBlock,
       baseBlock: s.baseBlock,
       hoodBlock: s.hoodBlock,
@@ -1794,8 +1839,12 @@ async function refreshFeed(
     // WHOLE 24h window (generous safety caps), with a small newest-N floor so a
     // quiet week still shows the most recent activity instead of an empty card.
     const dayAgo = Date.now() - FEED_WINDOW_MS;
-    const poolFees = combined.filter((e) => e.kind === "fee" && e.tradeUsd == null).slice(0, 25);
-    const tradesAll = combined.filter((e) => e.kind === "fee" && e.tradeUsd != null);
+    // Wrapper events are RARE and precious — they must never compete with the
+    // PRISM-pool fee flood for the 25 newest-only slots (an unpriced wrapped
+    // swap did exactly that on 2026-08-18 and was evicted within the hour).
+    // They ride the generous trades bucket whether or not they carry a price.
+    const poolFees = combined.filter((e) => e.kind === "fee" && e.tradeUsd == null && e.source !== "wrapper").slice(0, 25);
+    const tradesAll = combined.filter((e) => e.kind === "fee" && (e.tradeUsd != null || e.source === "wrapper"));
     const tradesDay = tradesAll.filter((e) => e.ts >= dayAgo).slice(0, 400);
     const trades = tradesDay.length >= 10 ? tradesDay : tradesAll.slice(0, 10);
     const restAll = combined.filter((e) => e.kind !== "fee");

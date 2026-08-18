@@ -49,27 +49,48 @@ function burnFigures(e: ActivityEvent, ethUsd: number, prismUsd: number) {
       // the swap that produced it); a basket fee carries them in USD. Reading
       // only the USD fields printed "$0 FEE" on every pool swap.
       if (e.source === "wrapper") {
+        // Three pricing shapes (2026-08-18): USD-priced by a stable leg
+        // (feeUsd/burnUsd — stable sells directly, stable buys at the tx's
+        // own rate), ETH-priced native sells (eth/burnEth), or honestly
+        // unpriced (no stable leg). The generation truth rides wholeFeeBurn,
+        // so an unpriced gen-3 event never wears the old 7/8 estimate — the
+        // first real CASHCAT sell rendered exactly that lie.
         const feeEth = e.eth ?? 0;
-        const sizeUsd = (e.tradeEth ?? 0) * ethUsd;
+        if (e.feeUsd != null) {
+          return {
+            cost: {
+              value: e.tradeUsd != null ? fmtUsdFull(e.tradeUsd) : fmtUsdFull(e.feeUsd),
+              label: e.tradeUsd != null ? "Swap size" : "Wrapper fee",
+              sub: `${fmtUsdFull(e.feeUsd)} fee (40 bps) · at the swap's own rate`,
+            },
+            burn:
+              e.burnUsd != null
+                ? {
+                    value: fmtUsdFull(e.burnUsd),
+                    label: "Burn cut",
+                    sub: e.wholeFeeBurn ? "the whole fee, measured" : "measured off the fee event",
+                    actual: true,
+                  }
+                : { value: null, label: "Burn cut", sub: "captured in the sell asset", actual: false },
+          };
+        }
         return {
           cost: {
-            value: e.tradeEth != null ? fmtUsdFull(sizeUsd) : feeEth > 0 ? `Ξ${fmtEth(feeEth)}` : "—",
+            value: e.tradeEth != null ? fmtUsdFull((e.tradeEth ?? 0) * ethUsd) : feeEth > 0 ? `Ξ${fmtEth(feeEth)}` : "—",
             label: e.tradeEth != null ? "Swap size" : "Wrapper fee",
-            sub: feeEth > 0 ? `Ξ${fmtEth(feeEth)} fee (40 bps)` : undefined,
+            sub: feeEth > 0 ? `Ξ${fmtEth(feeEth)} fee (40 bps)` : "charged in the sell asset · unpriced",
           },
-          // MEASURED when the event carries its burn cut (gen-3 burns the
-          // whole fee; the old build split 7:1). Events that predate the
-          // measured field are old-generation, so the 7/8 estimate is right
-          // for exactly the events that fall back to it.
           burn:
             e.burnEth != null
               ? {
                   value: fmtUsdFull(e.burnEth * ethUsd),
                   label: "Burn cut",
-                  sub: e.eth != null && e.burnEth >= e.eth ? "the whole fee, measured" : "measured off the fee event",
+                  sub: e.wholeFeeBurn ? "the whole fee, measured" : "measured off the fee event",
                   actual: true,
                 }
-              : { value: est(feeEth * WRAPPER_BURN_SHARE * ethUsd), label: "Est. PRISM burn", sub: "7/8 of the fee", actual: false },
+              : e.wholeFeeBurn
+                ? { value: null, label: "Burn cut", sub: "the whole fee, charged in the sell asset", actual: false }
+                : { value: est(feeEth * WRAPPER_BURN_SHARE * ethUsd), label: "Est. PRISM burn", sub: "7/8 of the fee", actual: false },
         };
       }
       if (e.source === "prism-pool" || e.source === "dstable") {
@@ -321,7 +342,9 @@ export function EventDetailModal({
     };
     // A batch's actor is the recipient WALLET, not a basket — reading it as
     // one would 404 and flash "Basket detail unavailable" over a valid event.
-    if (e.kind === "batch") return;
+    // A wrapped swap's actor is the swapper's wallet: same trap (hit live on
+    // the first real gen-3 sell, 2026-08-18).
+    if (e.kind === "batch" || e.source === "wrapper") return;
     if (!e.actor) {
       fail();
       return;
@@ -374,10 +397,11 @@ export function EventDetailModal({
   // swaps dominate the wire and every one of them opened titled "Basket".
   const isPoolSwap = e.source === "prism-pool" || e.source === "dstable";
   const isBatch = e.kind === "batch";
+  const isWrapper = e.source === "wrapper";
   const name =
     data?.name ||
     e.label ||
-    (e.kind === "burn" ? "PRISM buy & burn" : isBatch ? "Portfolio batch" : isPoolSwap ? "PRISM pool swap" : "Basket");
+    (e.kind === "burn" ? "PRISM buy & burn" : isBatch ? "Portfolio batch" : isWrapper ? "Wrapped swap" : isPoolSwap ? "PRISM pool swap" : "Basket");
   const symbol = data?.symbol || e.symbol;
   const holdings = (data?.holdings ?? [])
     .map((h) => ({
@@ -783,11 +807,13 @@ export function EventDetailModal({
                 </div>
               ) : (
                 <div className="grid h-full place-items-center px-8 text-center text-[12px] text-slate-500 font-mono">
-                  {isPoolSwap
-                    ? "A swap on the PRISM pool itself. No basket behind this one. The fee routes straight to holders."
-                    : failed
-                      ? "Basket detail unavailable"
-                      : "Reading the basket…"}
+                  {isWrapper
+                    ? "A direct swap through the fee wrapper. No basket behind this one — the whole fee is captured for the burn."
+                    : isPoolSwap
+                      ? "A swap on the PRISM pool itself. No basket behind this one. The fee routes straight to holders."
+                      : failed
+                        ? "Basket detail unavailable"
+                        : "Reading the basket…"}
                 </div>
               )}
             </div>

@@ -343,6 +343,24 @@ export const TOPIC_WRAPPER = {
 // as the display fallback for old-generation events; never apply it to gen-3.
 export const WRAPPER_BURN_SHARE = 7 / 8;
 
+// The wrapper charges its fee IN THE SELL ASSET, so pricing a wrapped swap
+// needs to know each chain's dollar stable (symbol + decimals read back live
+// before pinning, 2026-08-18): a stable on EITHER leg prices the whole swap —
+// stable sells directly, stable buys at the transaction's own executed rate.
+// Swaps with no stable leg stay honestly unpriced.
+export const STABLE_BY_CHAIN: Record<"ethereum" | "base" | "robinhood", { address: string; decimals: number; symbol: string }> = {
+  ethereum: { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" },
+  base: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, symbol: "USDC" },
+  robinhood: { address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", decimals: 6, symbol: "USDG" },
+};
+
+// Where undeliverable burn shares park: an ERC20 fee cannot enter the
+// ETH-only collector/burner, so the wrapper (and the batcher's divert paths)
+// deliver it here — in the sell asset, unswapped — awaiting the operator
+// sweep. First real production instance measured 2026-08-18: 328.118 CASHCAT
+// (≈$34 at the swap's own rate), tx 0x9ecfa51d…bd33 on 4663.
+export const BURN_FALLBACK_SINK = "0x2f2508e334bd34015e5fda79c9d2c0555096c572";
+
 // The PRISM pool's fixed fee split: the ETH leg is all holders'; the PRISM leg
 // burns. Single-sourced for the money map and its mini vignette.
 export const POOL_TO_HOLDERS = 0.9;

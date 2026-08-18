@@ -42,6 +42,7 @@ import {
   PORTFOLIO_BATCHER_WATCH,
   PORTFOLIO_COLLECTOR_WATCH,
   USDC_DECIMALS,
+  STABLE_BY_CHAIN,
 } from "./constants";
 
 // ── The charts store ─────────────────────────────────────────────────────────
@@ -105,6 +106,13 @@ interface HourAgg {
   wrapVolEth: number; // wrapper swap notional (spent, native sells)
   wrapFeeEth: number; // integratorCut + burnCut
   wrapBurnEth: number; // burnCut alone (fee − fee/8, the deployed floor math)
+  // stable-priced wrapped swaps (USD-native): a stable on either leg prices
+  // the swap — stable sells directly, stable buys at the tx's own executed
+  // rate. Added v18 after the first real gen-3 sell (82k CASHCAT → USDG)
+  // contributed nothing to any wrapper figure.
+  wrapVolUsd?: number;
+  wrapFeeUsd?: number;
+  wrapBurnUsd?: number;
   burnedPrism: number;
   basketBurnUsd: number; // trade-volume-derived 25% burn share (the /charts approximation)
   // Basket FeesAccrued (the real on-chain fee split, USDC) — powers /spectrum's
@@ -294,7 +302,7 @@ interface Snapshot {
   // v17: batchFeeUsd + batchBurnUsd join (the designer's same-day ruling: wrapped
   // swaps and batches are TWO CAPTURE ROUTES OF ONE SYSTEM — the portfolio
   // card carries both), so batch fees rebuild from the floors.
-  v: 17;
+  v: 18;
   ethLast: number;
   baseLast: number;
   hoodLast: number;
@@ -310,7 +318,7 @@ async function hydrateFromBlob(): Promise<void> {
     const blobs = await blobStore();
     if (!blobs) return;
     const snap = (await blobs.get("store", { type: "json" })) as Snapshot | null;
-    if (!snap || snap.v !== 17 || !Array.isArray(snap.hours)) return;
+    if (!snap || snap.v !== 18 || !Array.isArray(snap.hours)) return;
     store = {
       hours: new Map(snap.hours),
       ethLast: snap.ethLast,
@@ -333,7 +341,7 @@ async function persistToBlob(s: StoreState): Promise<void> {
     const blobs = await blobStore();
     if (!blobs) return;
     const snap: Snapshot = {
-      v: 17,
+      v: 18,
       ethLast: s.ethLast,
       baseLast: s.baseLast,
     hoodLast: s.hoodLast,
@@ -469,7 +477,7 @@ async function ingestEth(s: StoreState, eth: JsonRpcProvider, from: number, to: 
     getLogsChunked(eth, { address: WRAPPER_WATCH.ethereum.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to),
   ]);
   ingestBatches(s, batchLogs, tsOf);
-  ingestWrapper(s, wrapperLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf, "ethereum");
   for (const l of swapLogs) {
     try {
       // same decode as live.ts's feed: amount0 is the ETH side; |amount0| = notional
@@ -540,32 +548,59 @@ function ingestBatches(s: StoreState, logs: Log[], tsOf: (bn: number) => number)
 
 // Wrapper swaps off the wrapper watch (the designer 2026-08-16). Two passes because
 // FeeCharged does not name the asset — the paired DirectSwap in the same tx
-// does (topics[2] = sellToken; 0x0 = native).
-function ingestWrapper(s: StoreState, logs: Log[], tsOf: (bn: number) => number) {
-  const nativeTx = new Set<string>();
+// does (topics[2] = sellToken; 0x0 = native). The fee is charged in RAW SELL-
+// ASSET units, so denomination follows the sell leg:
+//   native sell → the ETH-denominated series (as always);
+//   a stable on either leg → the USD-native series (stable sells directly,
+//   stable buys at the transaction's own executed rate);
+//   no stable leg → honestly uncounted (the feed still shows the event).
+// Reworked v18: the old native-only gate silently excluded every stable-funded
+// swap — the dominant shape on 4663 — including the first real gen-3 sell.
+function ingestWrapper(s: StoreState, logs: Log[], tsOf: (bn: number) => number, chain: "ethereum" | "base" | "robinhood") {
+  const stable = STABLE_BY_CHAIN[chain];
+  // fee + burn per tx, in RAW sell-asset units (both generations)
+  const feeByTx = new Map<string, number>();
+  const burnByTx = new Map<string, number>();
   for (const l of logs) {
-    if (l.topics[0] !== TOPIC_WRAPPER.directSwap || l.topics[2] !== `0x${"0".repeat(64)}`) continue;
-    nativeTx.add(l.transactionHash);
     try {
-      hourAgg(s, tsOf(l.blockNumber)).wrapVolEth += num(abi.decode(["uint256", "uint256", "uint256"], l.data)[0] as bigint);
+      if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
+        const d = abi.decode(["uint256", "uint256"], l.data); // (integratorCut, burnCut)
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + Number(d[0] as bigint) + Number(d[1] as bigint));
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + Number(d[1] as bigint));
+      } else if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
+        const cut = Number(abi.decode(["uint256"], l.data)[0] as bigint); // burnCut == fee
+        feeByTx.set(l.transactionHash, (feeByTx.get(l.transactionHash) ?? 0) + cut);
+        burnByTx.set(l.transactionHash, (burnByTx.get(l.transactionHash) ?? 0) + cut);
+      }
     } catch {
       /* skip malformed */
     }
   }
   for (const l of logs) {
-    if (!nativeTx.has(l.transactionHash)) continue;
+    if (l.topics[0] !== TOPIC_WRAPPER.directSwap) continue;
     try {
       const h = hourAgg(s, tsOf(l.blockNumber));
-      if (l.topics[0] === TOPIC_WRAPPER.feeCharged) {
-        // old generation: (integratorCut, burnCut) — the 7:1 split
-        const d = abi.decode(["uint256", "uint256"], l.data);
-        h.wrapFeeEth += num(d[0] as bigint) + num(d[1] as bigint);
-        h.wrapBurnEth += num(d[1] as bigint);
-      } else if (l.topics[0] === TOPIC_WRAPPER.feeChargedWhole) {
-        // gen-3: (burnCut) and burnCut == fee — the whole fee burns
-        const cut = num(abi.decode(["uint256"], l.data)[0] as bigint);
-        h.wrapFeeEth += cut;
-        h.wrapBurnEth += cut;
+      const sellToken = `0x${l.topics[2].slice(26)}`.toLowerCase();
+      const buyToken = `0x${l.topics[3].slice(26)}`.toLowerCase();
+      const d = abi.decode(["uint256", "uint256", "uint256"], l.data); // (spent, bought, refunded)
+      const spentRaw = Number(d[0] as bigint);
+      const boughtRaw = Number(d[1] as bigint);
+      const feeRaw = feeByTx.get(l.transactionHash) ?? 0;
+      const burnRaw = burnByTx.get(l.transactionHash) ?? 0;
+      if (sellToken === `0x${"0".repeat(40)}`) {
+        h.wrapVolEth += spentRaw / 1e18;
+        h.wrapFeeEth += feeRaw / 1e18;
+        h.wrapBurnEth += burnRaw / 1e18;
+      } else if (stable && sellToken === stable.address.toLowerCase()) {
+        const unit = 10 ** stable.decimals;
+        h.wrapVolUsd = (h.wrapVolUsd ?? 0) + spentRaw / unit;
+        h.wrapFeeUsd = (h.wrapFeeUsd ?? 0) + feeRaw / unit;
+        h.wrapBurnUsd = (h.wrapBurnUsd ?? 0) + burnRaw / unit;
+      } else if (stable && buyToken === stable.address.toLowerCase() && spentRaw > feeRaw && feeRaw > 0) {
+        const rate = boughtRaw / 10 ** stable.decimals / (spentRaw - feeRaw); // the tx's own executed rate
+        h.wrapVolUsd = (h.wrapVolUsd ?? 0) + spentRaw * rate;
+        h.wrapFeeUsd = (h.wrapFeeUsd ?? 0) + feeRaw * rate;
+        h.wrapBurnUsd = (h.wrapBurnUsd ?? 0) + burnRaw * rate;
       }
     } catch {
       /* skip malformed */
@@ -609,7 +644,7 @@ async function ingestBase(s: StoreState, base: JsonRpcProvider, from: number, to
     getLogsChunked(base, { address: WRAPPER_WATCH.base.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to, 100_000),
   ]);
   ingestBatches(s, batchLogs, tsOf);
-  ingestWrapper(s, wrapperLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf, "base");
   for (const l of collectorFlushLogs) {
     try {
       hourAgg(s, tsOf(l.blockNumber)).bridgedEth += num(abi.decode(["uint256"], l.data)[0] as bigint);
@@ -689,7 +724,7 @@ async function ingestHood(s: StoreState, hood: JsonRpcProvider, from: number, to
     getLogsChunked(hood, { address: WRAPPER_WATCH.robinhood.addresses, topics: [[TOPIC_WRAPPER.directSwap, TOPIC_WRAPPER.feeCharged, TOPIC_WRAPPER.feeChargedWhole]] }, from, to, 400_000),
   ]);
   ingestBatches(s, batchLogs, tsOf);
-  ingestWrapper(s, wrapperLogs, tsOf);
+  ingestWrapper(s, wrapperLogs, tsOf, "robinhood");
   for (const l of collectorFlushLogs) {
     try {
       hourAgg(s, tsOf(l.blockNumber)).bridgedEth += num(abi.decode(["uint256"], l.data)[0] as bigint);
@@ -869,11 +904,11 @@ export async function fetchLiveCharts(
       sellVolumeUsd[i] += h.sellUsd;
       feesUsd[i] += h.feesEth * LEG_FACTOR * ethUsd;
       poolVolumeUsd[i] += (h.poolVolEth ?? 0) * ethUsd;
-      wrapperVolumeUsd[i] += (h.wrapVolEth ?? 0) * ethUsd;
+      wrapperVolumeUsd[i] += (h.wrapVolEth ?? 0) * ethUsd + (h.wrapVolUsd ?? 0);
       batchFeesUsd[i] += h.batchFeeUsd ?? 0;
       batchBurnUsd[i] += h.batchBurnUsd ?? 0;
-      wrapperFeesUsd[i] += (h.wrapFeeEth ?? 0) * ethUsd;
-      wrapperBurnUsd[i] += (h.wrapBurnEth ?? 0) * ethUsd;
+      wrapperFeesUsd[i] += (h.wrapFeeEth ?? 0) * ethUsd + (h.wrapFeeUsd ?? 0);
+      wrapperBurnUsd[i] += (h.wrapBurnEth ?? 0) * ethUsd + (h.wrapBurnUsd ?? 0);
       burnedPrism[i] += h.burnedPrism;
       basketBurnUsd[i] += h.basketBurnUsd;
       for (const t of h.traders) {
